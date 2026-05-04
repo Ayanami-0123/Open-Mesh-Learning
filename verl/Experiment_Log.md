@@ -378,3 +378,58 @@ python -m vllm.entrypoints.openai.api_server \
 ### Problem19: Tmux用不了了
 unset TMUX
 pkill -9 -u $(whoami) tmux
+
+### Problem20： GitHub的公钥问题
+方案二：一劳永逸（配置 Config 文件）—— 强烈推荐
+在服务器上创建一个配置文件，让它自动匹配。
+
+编辑（或创建）config 文件：
+nano ~/.ssh/config
+
+把下面这段内容贴进去：
+
+Plaintext
+
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/GitHubKey
+(按 Ctrl+O 保存，Ctrl+X 退出)
+
+修改权限（重要）：
+chmod 600 ~/.ssh/config
+
+直接验证：
+ssh -T git@github.com
+
+### Problem21: GitHub怎么创建新branch的问题：
+情况 A：该分支在本地/远程还不存在（创建并上传）
+如果你想创建一个全新的分支并把代码传上去，请按照以下步骤：
+
+创建并切换到新分支：
+git checkout -b <你的分支名>
+例如：git checkout -b feature-update
+
+添加更改到暂存区：
+git add .
+
+提交更改：
+git commit -m "你的提交信息"
+
+推送至远程服务器：
+git push origin <你的分支名>
+注意：第一次推送新分支时，Git 可能会提示你建立关联，按提示操作即可。
+
+情况 B：分支已经存在（切换并上传）
+如果你只是想把代码传到一个已经存在的分支上：
+
+切换到目标分支：
+git checkout <分支名>
+
+合并你在 main 上的修改（可选）：
+如果你刚才是在 main 分支下写的代码，切换分支前可以先用 git stash 暂存，或者切换后用 git merge main 把改动合过来。
+
+正常提交并推送：
+git add .
+git commit -m "你的提交信息"
+git push origin <分支名>

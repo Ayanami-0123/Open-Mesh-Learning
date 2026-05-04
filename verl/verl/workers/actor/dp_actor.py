@@ -19,7 +19,9 @@ Single Process Actor
 
 import logging
 import os
+from collections import defaultdict
 
+import numpy as np
 import torch
 from torch import nn
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
@@ -44,6 +46,53 @@ __all__ = ["DataParallelPPOActor"]
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+_MEI_SKIP_WARNED = False
+
+
+def _compute_mei_mean_for_batch(
+    logits: torch.Tensor,
+    responses: torch.Tensor,
+    response_mask: torch.Tensor,
+    uids,
+    eps: float = 1e-12,
+) -> float:
+    """Batch-level mean of per-prompt MEI.
+
+    For each trajectory (row) let v_i = sum_t (one_hot(y) - softmax(z)) over response tokens.
+    For each prompt (shared ``uid``): A = sum_i v_i, B = sum_i ||v_i||^2, MEI_p = ||A||^2 / B.
+
+    Returns the mean of MEI_p over prompts present in this tensor batch.
+    """
+    with torch.no_grad():
+        logits = logits.float()
+        probs = torch.softmax(logits, dim=-1)
+        num_classes = logits.size(-1)
+        oh = torch.nn.functional.one_hot(responses, num_classes=num_classes).to(probs.dtype)
+        per_tok = oh - probs
+        mask = response_mask.to(per_tok.dtype).unsqueeze(-1)
+        v = (per_tok * mask).sum(dim=1)
+        sqnorm = (v * v).sum(dim=-1)
+
+    sum_v = {}
+    sum_sqnorm = defaultdict(float)
+
+    batch_size = v.shape[0]
+    uid_arr = np.asarray(uids)
+    for i in range(batch_size):
+        uk = uid_arr[i]
+        if uk not in sum_v:
+            sum_v[uk] = v[i].clone()
+        else:
+            sum_v[uk] = sum_v[uk] + v[i]
+        sum_sqnorm[uk] += sqnorm[i].item()
+
+    mei_vals = []
+    for uk, avec in sum_v.items():
+        b_den = sum_sqnorm[uk]
+        mei_vals.append((avec * avec).sum().item() / (b_den + eps))
+
+    return float(np.mean(mei_vals)) if mei_vals else 0.0
 
 
 class DataParallelPPOActor(BasePPOActor):
@@ -93,11 +142,12 @@ class DataParallelPPOActor(BasePPOActor):
 
     def _forward_micro_batch(
         self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
         """
         Returns:
-            entropy: # (bs, response_len)
-            log_probs: # (bs, response_len)
+            entropy: ``(bs, response_len)`` or None.
+            log_probs: ``(bs, response_len)``.
+            logits_resp: ``(bs, response_len, vocab)`` for MEI when logits are available; else None.
         """
         response_length = micro_batch["responses"].size(-1)
         multi_modal_inputs = {}
@@ -107,6 +157,7 @@ class DataParallelPPOActor(BasePPOActor):
             multi_modal_inputs = extract_multi_modal_inputs(micro_batch["multi_modal_inputs"])
 
         with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
+            logits_resp = None
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -271,6 +322,7 @@ class DataParallelPPOActor(BasePPOActor):
 
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
+                    logits_resp = logits
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
                         if not self.config.entropy_checkpointing:
@@ -278,7 +330,7 @@ class DataParallelPPOActor(BasePPOActor):
                         else:
                             entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
 
-            return entropy, log_probs
+            return entropy, log_probs, logits_resp
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -349,7 +401,7 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
-                entropy, log_probs = self._forward_micro_batch(
+                entropy, log_probs, _ = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
@@ -396,6 +448,8 @@ class DataParallelPPOActor(BasePPOActor):
 
         has_multi_modal_inputs = "multi_modal_inputs" in data.non_tensor_batch.keys()
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
+        if "uid" in data.non_tensor_batch:
+            non_tensor_select_keys.append("uid")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -439,9 +493,27 @@ class DataParallelPPOActor(BasePPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob = self._forward_micro_batch(
+                    entropy, log_prob, logits_resp = self._forward_micro_batch(
                         model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                     )
+
+                    if getattr(self.config, "compute_mei_metric", True):
+                        if logits_resp is not None and "uid" in model_inputs:
+                            mei_val = _compute_mei_mean_for_batch(
+                                logits_resp,
+                                model_inputs["responses"],
+                                response_mask,
+                                model_inputs["uid"],
+                            )
+                            micro_batch_metrics["algorithm/mei_mean"] = mei_val
+                        else:
+                            global _MEI_SKIP_WARNED
+                            if not _MEI_SKIP_WARNED:
+                                logger.warning(
+                                    "algorithm/mei_mean skipped: needs logits (disable actor.use_fused_kernels) "
+                                    "and batch non_tensor_batch['uid'] for rollout grouping."
+                                )
+                                _MEI_SKIP_WARNED = True
 
                     # for fully_async_policy recipe
                     if hasattr(self.config, "use_rollout_log_probs") and self.config.use_rollout_log_probs:

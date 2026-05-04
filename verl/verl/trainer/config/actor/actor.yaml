@@ -90,6 +90,15 @@ kl_loss_type: low_var_kl
 # Number of PPO epochs per batch
 ppo_epochs: 1
 
+# If true, add KL(uniform over 4 || softmax(z/T)) on consecutive uid blocks of size 4 (requires uid + token_level_rewards; disable dynamic batch sizing).
+uniform_group_kl_enable: false
+
+# Temperature T in softmax over the four prompt-level z_i values.
+uniform_group_kl_temperature: 1.0
+
+# Multiplier mu on the summed KL before adding to the policy loss.
+uniform_group_kl_coef: 0.0
+
 # Shuffle training data across PPO epochs
 shuffle: false
 

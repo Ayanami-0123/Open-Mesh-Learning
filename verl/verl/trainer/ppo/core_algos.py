@@ -18,7 +18,12 @@ The function implemented in this file should be used by trainer with different d
 implement PPO-like algorithms.
 """
 
-__all__ = ["register_adv_est", "get_adv_estimator_fn", "AdvantageEstimator"]
+__all__ = [
+    "register_adv_est",
+    "get_adv_estimator_fn",
+    "AdvantageEstimator",
+    "compute_uniform_group_kl_aux_loss",
+]
 
 from collections import defaultdict
 from enum import Enum
@@ -1777,3 +1782,83 @@ def compute_policy_loss_rollout_correction_wrapper(
         rollout_token_veto_threshold=rollout_token_veto_threshold,
         rollout_is_batch_normalize=rollout_is_batch_normalize,
     )
+
+
+def compute_uniform_group_kl_aux_loss(
+    log_prob: torch.Tensor,
+    response_mask: torch.Tensor,
+    token_level_rewards: torch.Tensor,
+    uids,
+    temperature: float,
+    eps: float = 1e-8,
+) -> torch.Tensor:
+    """
+    Group prompts by ``uid`` in first-appearance order; take every consecutive block of 4 prompts.
+
+    For each prompt, let z = sum of trajectory log-probs over **correct** rollouts (reward sum > 0).
+    If none are correct, z is a large negative constant (no gradient).
+
+    For each block of 4, compute p = softmax(z / temperature), then KL(uniform(4) || p), and sum KL over
+    all complete blocks in the micro-batch.
+
+    Requires non-dynamic batching and dataset ordering where ``uid`` follows “four adjacent problems”.
+
+    Args:
+        log_prob: (B, L) token log probabilities under the current policy.
+        response_mask: (B, L) mask over response tokens.
+        token_level_rewards: (B, L) token-level rewards (correctness: sum > 0).
+        uids: length-B sequence (same order as batch rows) of prompt ids.
+        temperature: Softmax temperature T (> 0).
+        eps: Numerical stabilizer for log.
+
+    Returns:
+        Scalar tensor: sum of KL terms over all full groups of 4 prompts (before external coef ``mu``).
+    """
+    if temperature <= 0:
+        raise ValueError("uniform_group_kl_temperature must be > 0")
+
+    seq_logp = (log_prob * response_mask).sum(dim=-1)
+    correct = token_level_rewards.sum(dim=-1) > 0
+
+    uid_list = np.asarray(uids, dtype=object)
+    n = uid_list.shape[0]
+    if n == 0:
+        return log_prob.sum() * 0.0
+
+    ordered_uids = []
+    seen = set()
+    for u in uid_list:
+        if u not in seen:
+            seen.add(u)
+            ordered_uids.append(u)
+
+    device = log_prob.device
+    dtype = log_prob.dtype
+    neg_z = torch.tensor(-1e9, device=device, dtype=dtype)
+
+    zs = []
+    for u in ordered_uids:
+        mask_uid = np.array([x == u for x in uid_list], dtype=bool)
+        idx = np.nonzero(mask_uid)[0]
+        idx_t = torch.tensor(idx, device=device, dtype=torch.long)
+        corr = correct[idx_t]
+        lp = seq_logp[idx_t]
+        if corr.any():
+            zs.append(lp[corr].mean())
+        else:
+            zs.append(neg_z)
+
+    if not zs:
+        return log_prob.sum() * 0.0
+
+    z_stack = torch.stack(zs, dim=0)
+    p_count = z_stack.size(0)
+    n_groups = p_count // 4
+    if n_groups == 0:
+        return log_prob.sum() * 0.0
+
+    zg = z_stack[: n_groups * 4].view(n_groups, 4)
+    p = torch.nn.functional.softmax(zg / temperature, dim=-1)
+    uni = torch.full_like(p, 0.25)
+    kl_per_group = (uni * (torch.log(uni + eps) - torch.log(p + eps))).sum(dim=-1)
+    return kl_per_group.sum()

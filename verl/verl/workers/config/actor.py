@@ -82,6 +82,9 @@ class ActorConfig(BaseConfig):
         optim (OptimizerConfig): Configuration for optimizer.
         use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
         compute_mei_metric (bool): If True, log MEI = ||sum_i v_i||^2 / sum_i ||v_i||^2 per prompt (needs logits).
+        uniform_group_kl_enable (bool): If True, add KL(uniform_4 || softmax(z/T)) over consecutive groups of 4 prompts (by uid order).
+        uniform_group_kl_temperature (float): Temperature T for softmax over the four z_i values.
+        uniform_group_kl_coef (float): Coefficient mu multiplying the auxiliary KL sum before adding to policy loss.
     """
 
     _mutable_fields = BaseConfig._mutable_fields | {
@@ -117,6 +120,9 @@ class ActorConfig(BaseConfig):
     optim: OptimizerConfig = field(default_factory=OptimizerConfig)
     use_fused_kernels: bool = False
     compute_mei_metric: bool = True
+    uniform_group_kl_enable: bool = False
+    uniform_group_kl_temperature: float = 1.0
+    uniform_group_kl_coef: float = 0.0
     profiler: ProfilerConfig = field(default_factory=ProfilerConfig)
     engine: BaseConfig = field(default_factory=BaseConfig)
     data_loader_seed = 1

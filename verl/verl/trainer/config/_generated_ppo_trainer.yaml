@@ -70,6 +70,9 @@ actor_rollout_ref:
     kl_loss_type: low_var_kl
     ppo_epochs: 1
     shuffle: false
+    uniform_group_kl_enable: false
+    uniform_group_kl_temperature: 1.0
+    uniform_group_kl_coef: 0.0
     checkpoint:
       _target_: verl.trainer.config.CheckpointConfig
       save_contents:
@@ -297,7 +300,7 @@ data:
   return_raw_input_ids: false
   return_raw_chat: false
   return_full_prompt: false
-  shuffle: true
+  shuffle: false
   seed: null
   dataloader_num_workers: 8
   image_patch_size: 14

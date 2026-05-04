@@ -935,11 +935,20 @@ def compute_policy_loss_vanilla(
         + f" but get the value: {clip_ratio_c}."
     )
 
+    p = torch.exp(log_prob)
+    q = torch.exp(old_log_prob)
+    m = 0.5 * (p + q)
+    log_m = torch.log(m + 1e-8)
+    
+    # JS 散度公式的点估计版本
+    js_dist = 0.5 * (log_prob - log_m) + 0.5 * (old_log_prob - log_m)
+    ppo_kl = verl_F.masked_mean(js_dist, response_mask)
+
     negative_approx_kl = log_prob - old_log_prob
     # Clamp negative_approx_kl for stability
     negative_approx_kl = torch.clamp(negative_approx_kl, min=-20.0, max=20.0)
     ratio = torch.exp(negative_approx_kl)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
+    # ppo_kl = verl_F.masked_mean(-negative_approx_kl, response_mask)
 
     pg_losses1 = -advantages * ratio
     if cliprange_low is None:
@@ -967,6 +976,11 @@ def compute_policy_loss_vanilla(
         pg_losses = pg_losses * rollout_is_weights
 
     pg_loss = agg_loss(loss_mat=pg_losses, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
+
+    if config is not None and config.get("use_kl_loss", False):
+        kl_loss_coef = config.get("kl_loss_coef", 0.0)
+        # 将 JS 散度作为 Loss 惩罚项
+        pg_loss = pg_loss + kl_loss_coef * ppo_kl
 
     pg_metrics = {
         "actor/pg_clipfrac": pg_clipfrac.detach().item(),
@@ -1470,6 +1484,17 @@ def kl_penalty_forward(logprob: torch.FloatTensor, ref_logprob: torch.FloatTenso
         # so, here logprob and ref_logprob should contain the logits for every token in vocabulary
         raise NotImplementedError
 
+    if kl_penalty == "js":
+        p = torch.exp(logprob)
+        q = torch.exp(ref_logprob)
+        
+        m = 0.5 * (p + q)
+        log_m = torch.log(m + 1e-8)
+
+        js_div = 0.5 * (logprob - log_m) + 0.5 * (ref_logprob - log_m)
+
+        return js_div
+    
     raise NotImplementedError
 
 

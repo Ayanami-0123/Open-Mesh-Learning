@@ -18,9 +18,9 @@
 > docker run --gpus all -it \
     --shm-size=16g \
     --name mutant_lab \
-    -v /data/home/huangqiyuan/verl:/workspace/verl \
-    -v /data/home/huangqiyuan/data:/workspace/data \
-    -v /data/home/huangqiyuan/models/qwen/Qwen2.5-7B-Instruct:/workspace/Qwen2.5-7B \
+    -v /data/home/huangqiyuan/mutant_grpo/verl:/workspace/verl \
+    -v /data/home/huangqiyuan/mutant_grpo/data:/workspace/data \
+    -v /data/home/huangqiyuan/mutant_grpo/models/qwen:/workspace/Qwen2.5-7B \
     verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2 \
     /bin/bash
 
@@ -363,3 +363,18 @@ git add .
 git commit -m "chore: remove large wheel files and add gitignore"
 git push origin main
 ```
+
+###2026.04.07 Problem18：ray OOM 问题
+现在，发现调大batchsize以后，ray经常会爆内存。
+
+### Problem18: API和本地模型测试的兼容性问题
+要用这个：
+python -m vllm.entrypoints.openai.api_server \
+    --model /data/home/huangqiyuan/mutant_grpo/models/qwen \
+    --tensor-parallel-size 2 \
+    --port 8000 \
+    --trust-remote-code
+
+### Problem19: Tmux用不了了
+unset TMUX
+pkill -9 -u $(whoami) tmux

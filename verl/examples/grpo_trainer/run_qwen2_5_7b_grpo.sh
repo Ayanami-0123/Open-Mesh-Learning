@@ -19,15 +19,15 @@ ppo_mini_batch_size=32
 ppo_micro_batch_size=2
 
 # 3. 设备映射（确保 NPU/GPU 数量匹配）
-export CUDA_VISIBLE_DEVICES=1,2
+export CUDA_VISIBLE_DEVICES=0,3
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/workspace/data/dapomath_7000_final_aligned.parquet \
-    data.val_files=/workspace/data/dapomath_7000_final_aligned.parquet \
+    data.train_files=/workspace/data/math_train_fixed.parquet \
+    data.val_files=/workspace/data/math_test_fixed.parquet \
     data.train_batch_size=$train_batch_size \
-    data.max_prompt_length=2048 \
-    data.max_response_length=2048 \
+    data.max_prompt_length=1024 \
+    data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     +model.torch_dtype=bfloat16 \
@@ -38,8 +38,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.actor.use_kl_loss=True \
-    actor_rollout_ref.actor.kl_loss_coef=0.01 \
+    actor_rollout_ref.actor.use_kl_loss=False \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     +actor_rollout_ref.rollout.max_model_len=2048 \
@@ -50,10 +50,10 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
-    actor_rollout_ref.rollout.n=8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.9 \
+    actor_rollout_ref.rollout.n=16 \
     actor_rollout_ref.rollout.do_sample=True \
-    actor_rollout_ref.rollout.temperature=0.8 \
+    actor_rollout_ref.rollout.temperature=0.2 \
     actor_rollout_ref.rollout.top_p=0.95 \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
@@ -61,12 +61,15 @@ python3 -m verl.trainer.main_ppo \
     trainer.logger=wandb \
     trainer.project_name='verl_grpo_math' \
     trainer.experiment_name='qwen2_5_7b_grpo' \
-    trainer.default_local_dir=/tmp/verl_outputs \
+    trainer.default_local_dir=/workspace/data/verl_outputs \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
-    trainer.save_freq=-1 \
+    trainer.save_freq=10 \
+    trainer.max_actor_ckpt_to_keep=1 \
+    trainer.max_critic_ckpt_to_keep=1 \
+    trainer.resume_mode=auto \
     trainer.test_freq=5 \
-    trainer.total_epochs=1 \
+    trainer.total_epochs=5 \
     trainer.device=cuda \
     reward_model.strategy=naive \
     +reward_model.num_examine=5 \

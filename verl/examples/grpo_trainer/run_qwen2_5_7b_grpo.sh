@@ -5,33 +5,39 @@ PROFILE_STEPS="[2,4]"
 PROFILE_RANKS_ALL=False
 DISCRETE=True
 PROFILE_RANKS="[1,2]"
-SAVE_PATH="/workspace/profile_data"
+
+# 2. 数据路径
+SAVE_PATH="/workspace/profile_data" # 断点保存路径
+TRAIN_PATH="/workspace/data/math_train_fixed.parquet" # 训练数据路径
+TEST_PATH="/workspace/data/math_test_fixed.parquet" # 测试数据路径
+MODEL_PATH="/workspace/Qwen2.5-7B" # 模型路径
+
 LEVEL="level1"
 CONTENTS="['npu','cpu']"
 ANALYSIS=True
 
-# 2. Batch Size 逻辑修正
+# 3. Batch Size 逻辑修正
 # 对于 GRPO，通常 train_batch_size 表示每一轮从数据集中取出的 Prompt 数量
 # 而 rollout.n (16) 是每个 Prompt 生成的数量
-# 关键：ppo_mini_batch_size 在 GRPO 模式下必须等于 train_batch_size
+# 关键!!! ppo_mini_batch_size 在 GRPO 模式下必须等于 train_batch_size
 train_batch_size=32
 ppo_mini_batch_size=32 
 ppo_micro_batch_size=2
 
-# 3. 设备映射（确保 NPU/GPU 数量匹配）
+# 4. 设备映射（确保 NPU/GPU 数量匹配）
 export CUDA_VISIBLE_DEVICES=0,3
 
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
-    data.train_files=/workspace/data/math_train_fixed.parquet \
-    data.val_files=/workspace/data/math_test_fixed.parquet \
+    data.train_files=$TRAIN_PATH \
+    data.val_files=$TEST_PATH \
     data.train_batch_size=$train_batch_size \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     +model.torch_dtype=bfloat16 \
-    actor_rollout_ref.model.path=/workspace/Qwen2.5-7B \
+    actor_rollout_ref.model.path=$MODEL_PATH \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.param=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.reduce=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.buffer=bfloat16 \

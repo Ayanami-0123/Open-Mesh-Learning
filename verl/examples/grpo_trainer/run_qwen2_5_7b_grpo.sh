@@ -27,6 +27,10 @@ ppo_micro_batch_size=2
 # 4. 设备映射（确保 NPU/GPU 数量匹配）
 export CUDA_VISIBLE_DEVICES=0,3
 
+# 5. 项目名称
+PROJECT_NAME="verl_grpo_math"
+TRAINER_NAME="qwen2_5_7b_grpo"
+
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_PATH \
@@ -65,8 +69,8 @@ python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     trainer.logger=wandb \
-    trainer.project_name='verl_grpo_math' \
-    trainer.experiment_name='qwen2_5_7b_grpo' \
+    trainer.project_name=$PROJECT_NAME \
+    trainer.experiment_name=$TRAINER_NAME \
     trainer.default_local_dir=/workspace/data/verl_outputs \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \

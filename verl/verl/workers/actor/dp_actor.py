@@ -68,10 +68,17 @@ def _compute_mei_mean_for_batch(
         logits = logits.float()
         probs = torch.softmax(logits, dim=-1)
         num_classes = logits.size(-1)
-        oh = torch.nn.functional.one_hot(responses, num_classes=num_classes).to(probs.dtype)
-        per_tok = oh - probs
-        mask = response_mask.to(per_tok.dtype).unsqueeze(-1)
-        v = (per_tok * mask).sum(dim=1)
+        mask = response_mask.to(probs.dtype)
+        prob_sum = (probs * mask.unsqueeze(-1)).sum(dim=1)
+
+        counts = torch.zeros(
+            responses.shape[0],
+            num_classes,
+            dtype=probs.dtype,
+            device=responses.device,
+        )
+        counts.scatter_add_(dim=1, index=responses, src=mask)
+        v = counts - prob_sum
         sqnorm = (v * v).sum(dim=-1)
 
     sum_v = {}

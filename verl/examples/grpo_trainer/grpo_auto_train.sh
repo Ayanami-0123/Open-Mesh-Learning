@@ -1,33 +1,19 @@
 #!/bin/bash
+set -euo pipefail
 
-# 定义你要运行的那个测试脚本
-TARGET_SCRIPT="run_qwen2_5_7b_grpo.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR" || exit 1
 
-# 计数器，方便看重启了多少次
-COUNT=0
+echo "Start 8 GRPO experiments on DAPO-math 7K."
 
-echo "开始执行监控循环..."
+MODEL_PATH="/mnt/workspace/xts/models/Qwen3-4B-Instruct-2507" TEMPERATURE=1.0 USE_KL_LOSS=False KL_LOSS_COEF=0.001 TRAINER_NAME="qwen3_4b_dapomath_grpo_vllm_t1_no_kl" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen3-4B-Instruct-2507" TEMPERATURE=0.8 USE_KL_LOSS=False KL_LOSS_COEF=0.001 TRAINER_NAME="qwen3_4b_dapomath_grpo_vllm_t0_8_no_kl" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen3-4B-Instruct-2507" TEMPERATURE=1.0 USE_KL_LOSS=True KL_LOSS_COEF=0.001 TRAINER_NAME="qwen3_4b_dapomath_grpo_vllm_t1_kl_beta0_001" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen3-4B-Instruct-2507" TEMPERATURE=1.0 USE_KL_LOSS=True KL_LOSS_COEF=0.01 TRAINER_NAME="qwen3_4b_dapomath_grpo_vllm_t1_kl_beta0_01" bash "run_qwen2_5_7b_grpo.sh"
 
-while true; do
-    # 记录时间并启动
-    echo "[$(date '+%H:%M:%S')] 第 $COUNT 次启动脚本: $TARGET_SCRIPT"
-    
-    # 运行你的测试脚本
-    bash "$TARGET_SCRIPT"
-    
-    # 获取退出状态码
-    # 0 代表正常跑完退出，非 0 代表崩了（包括 OOM）
-    EXIT_CODE=$?
-    
-    if [ $EXIT_CODE -eq 0 ]; then
-        echo "脚本已正常运行结束，退出监控。"
-        break
-    else
-        COUNT=$((COUNT + 1))
-        echo "检测到异常退出 (Code: $EXIT_CODE)，1秒后尝试自动续传..."
-        
-        # 强制清理：有时候 OOM 之后显存不会立刻释放干净
-        # 这一步是保险，防止重启后瞬间再次 OOM
-        sleep 1
-    fi
-done
+MODEL_PATH="/mnt/workspace/xts/models/Qwen2.5-7B-Instruct" TEMPERATURE=1.0 USE_KL_LOSS=False KL_LOSS_COEF=0.001 TRAINER_NAME="qwen2_5_7b_dapomath_grpo_vllm_t1_no_kl" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen2.5-7B-Instruct" TEMPERATURE=0.8 USE_KL_LOSS=False KL_LOSS_COEF=0.001 TRAINER_NAME="qwen2_5_7b_dapomath_grpo_vllm_t0_8_no_kl" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen2.5-7B-Instruct" TEMPERATURE=1.0 USE_KL_LOSS=True KL_LOSS_COEF=0.001 TRAINER_NAME="qwen2_5_7b_dapomath_grpo_vllm_t1_kl_beta0_001" bash "run_qwen2_5_7b_grpo.sh"
+MODEL_PATH="/mnt/workspace/xts/models/Qwen2.5-7B-Instruct" TEMPERATURE=1.0 USE_KL_LOSS=True KL_LOSS_COEF=0.01 TRAINER_NAME="qwen2_5_7b_dapomath_grpo_vllm_t1_kl_beta0_01" bash "run_qwen2_5_7b_grpo.sh"
+
+echo "All 8 GRPO experiments finished."

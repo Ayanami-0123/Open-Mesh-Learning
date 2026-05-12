@@ -80,7 +80,7 @@ python3 -m verl.trainer.main_ppo \
     trainer.max_actor_ckpt_to_keep=1 \
     trainer.max_critic_ckpt_to_keep=1 \
     trainer.resume_mode=auto \
-    trainer.test_freq=5 \
+    trainer.test_freq=20 \
     trainer.total_epochs=5 \
     trainer.device=cuda \
     reward_model.strategy=naive \

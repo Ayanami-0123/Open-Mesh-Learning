@@ -11,7 +11,7 @@ SAVE_PATH="/workspace/profile_data" # 断点保存路径
 TRAIN_PATH="/workspace/data/dapomath_7000.parquet" # 训练数据路径
 TEST_PATH_ID="/workspace/data/dapomath_100.parquet" # in domain 测试数据路径
 TEST_PATH_OOD="/workspace/data/AIME24-26.parquet" # out of domain 测试数据路径
-VAL_FILES="['$TEST_PATH_ID', '$TEST_PATH_OOD']"
+VAL_FILES="['$TEST_PATH_ID','$TEST_PATH_OOD']"
 MODEL_PATH="/workspace/Qwen2.5-7B" # 模型路径
 
 LEVEL="level1"
@@ -36,7 +36,7 @@ TRAINER_NAME="qwen2_5_7b_grpo"
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=$TRAIN_PATH \
-    data.val_files=$VAL_FILES \
+    data.val_files="$VAL_FILES" \
     data.train_batch_size=$train_batch_size \
     data.max_prompt_length=1024 \
     data.max_response_length=1024 \

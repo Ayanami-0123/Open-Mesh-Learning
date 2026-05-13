@@ -34,9 +34,6 @@ TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/MATH-500_fixed.parquet}" # 测试�
 TRAIN_FILES="${TRAIN_FILES:-$TRAIN_PATH}"
 VAL_FILES="${VAL_FILES:-$TEST_PATH}"
 MODEL_PATH="${MODEL_PATH:-/mnt/data/xts/models/Qwen2.5-7B-Instruct}" # 模型路径
-OUTPUT_PATH="${OUTPUT_PATH:-${PROJECT_ROOT}/verl_outputs}" # 断点保存路径
-HYDRA_OUTPUT_DIR="${HYDRA_OUTPUT_DIR:-${PROJECT_ROOT}/hydra_outputs/${TRAINER_NAME:-manual_run}}"
-mkdir -p "$SAVE_PATH" "$OUTPUT_PATH" "$HYDRA_OUTPUT_DIR"
 
 LEVEL="level1"
 CONTENTS="['npu','cpu']"
@@ -53,7 +50,6 @@ ROLLOUT_N="${ROLLOUT_N:-16}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
 USE_KL_LOSS="${USE_KL_LOSS:-False}"
 KL_LOSS_COEF="${KL_LOSS_COEF:-0.001}"
-COMPUTE_MEI_METRIC="${COMPUTE_MEI_METRIC:-True}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-1024}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}"
@@ -73,6 +69,9 @@ N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-2}"
 # 5. 项目名称
 PROJECT_NAME="verl_grpo_math_xts"
 TRAINER_NAME="${TRAINER_NAME:-qwen2_5_7b_dapomath_grpo_vllm_t${TEMPERATURE}_kl${USE_KL_LOSS}_beta${KL_LOSS_COEF}}"
+OUTPUT_PATH="${OUTPUT_PATH:-${PROJECT_ROOT}/verl_outputs/${TRAINER_NAME}}" # 断点保存路径
+HYDRA_OUTPUT_DIR="${HYDRA_OUTPUT_DIR:-${PROJECT_ROOT}/hydra_outputs/${TRAINER_NAME}}"
+mkdir -p "$SAVE_PATH" "$OUTPUT_PATH" "$HYDRA_OUTPUT_DIR"
 
 cd "$PROJECT_ROOT/verl" || exit 1
 
@@ -98,7 +97,6 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.actor.use_kl_loss=$USE_KL_LOSS \
     actor_rollout_ref.actor.kl_loss_coef=$KL_LOSS_COEF \
-    actor_rollout_ref.actor.compute_mei_metric=$COMPUTE_MEI_METRIC \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     +actor_rollout_ref.rollout.max_model_len=$MAX_MODEL_LEN \

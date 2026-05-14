@@ -23,9 +23,13 @@ PPO_RAY_RUNTIME_ENV = {
         "NCCL_DEBUG": "WARN",
         "VLLM_LOGGING_LEVEL": "WARN",
         "VLLM_ALLOW_RUNTIME_LORA_UPDATING": "true",
+        "VLLM_DISABLE_COMPILE_CACHE": "1",
         # symmetric memory allreduce not work properly in spmd mode
         "VLLM_ALLREDUCE_USE_SYMM_MEM": "0",
         "CUDA_DEVICE_MAX_CONNECTIONS": "1",
+        "HCCL_HOST_SOCKET_PORT_RANGE": "auto",
+        "HCCL_NPU_SOCKET_PORT_RANGE": "auto",
+        "HSA_NO_SCRATCH_RECLAIM": "1",
         # To prevent hanging or crash during synchronization of weights between actor and rollout
         # in disaggregated mode. See:
         # https://docs.vllm.ai/en/latest/usage/troubleshooting.html?h=nccl_cumem_enable#known-issues

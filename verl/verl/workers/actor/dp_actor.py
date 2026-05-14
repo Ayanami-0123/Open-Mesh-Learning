@@ -56,6 +56,7 @@ def _compute_mei_mean_for_batch(
     response_mask: torch.Tensor,
     uids,
     eps: float = 1e-12,
+    token_chunk_size: int = 64,
 ) -> float:
     """Batch-level mean of per-prompt MEI.
 
@@ -65,13 +66,22 @@ def _compute_mei_mean_for_batch(
     Returns the mean of MEI_p over prompts present in this tensor batch.
     """
     with torch.no_grad():
-        logits = logits.float()
-        probs = torch.softmax(logits, dim=-1)
-        num_classes = logits.size(-1)
-        oh = torch.nn.functional.one_hot(responses, num_classes=num_classes).to(probs.dtype)
-        per_tok = oh - probs
-        mask = response_mask.to(per_tok.dtype).unsqueeze(-1)
-        v = (per_tok * mask).sum(dim=1)
+        batch_size, response_length, num_classes = logits.shape
+        metric_dtype = torch.float32
+        mask = response_mask.to(metric_dtype)
+
+        prob_sum = torch.zeros(batch_size, num_classes, dtype=metric_dtype, device=responses.device)
+        counts = torch.zeros(batch_size, num_classes, dtype=metric_dtype, device=responses.device)
+
+        for start in range(0, response_length, token_chunk_size):
+            end = min(start + token_chunk_size, response_length)
+            mask_chunk = mask[:, start:end]
+            probs_chunk = torch.softmax(logits[:, start:end, :].float(), dim=-1)
+            probs_chunk.mul_(mask_chunk.unsqueeze(-1))
+            prob_sum.add_(probs_chunk.sum(dim=1))
+            counts.scatter_add_(dim=1, index=responses[:, start:end], src=mask_chunk)
+
+        v = counts - prob_sum
         sqnorm = (v * v).sum(dim=-1)
 
     sum_v = {}

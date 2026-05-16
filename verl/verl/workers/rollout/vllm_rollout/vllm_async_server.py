@@ -13,9 +13,11 @@
 # limitations under the License.
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
+import time
 from pprint import pprint
 from typing import Any, Callable, Optional
 
@@ -35,7 +37,11 @@ from vllm.inputs import TokensPrompt
 from vllm.lora.request import LoRARequest
 from vllm.outputs import RequestOutput
 from vllm.usage.usage_lib import UsageContext
-from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+try:
+    from vllm.utils import FlexibleArgumentParser, get_tcp_uri
+except ImportError:
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
+    from vllm.utils.network_utils import get_tcp_uri
 from vllm.v1.engine.async_llm import AsyncLLM
 from vllm.v1.engine.core import EngineCoreProc
 from vllm.v1.engine.utils import CoreEngineProcManager
@@ -337,7 +343,10 @@ class vLLMHttpServerBase:
         await engine_client.reset_mm_cache()
 
         app = build_app(args)
-        await init_app_state(engine_client, vllm_config, app.state, args)
+        if len(inspect.signature(init_app_state).parameters) == 3:
+            await init_app_state(engine_client, app.state, args)
+        else:
+            await init_app_state(engine_client, vllm_config, app.state, args)
         if self.replica_rank == 0 and self.node_rank == 0:
             logger.info(f"Initializing a V1 LLM engine with config: {vllm_config}")
 
@@ -380,10 +389,13 @@ class vLLMHttpServerBase:
         """Generate sequence with token-in-token-out."""
         # TODO(@wuxibin): switch to `/generate` http endpoint once multi-modal support ready.
         max_tokens = self.config.max_model_len - len(prompt_ids)
+        sampling_params = dict(sampling_params)
+        max_tokens = min(max_tokens, sampling_params.pop("max_tokens", max_tokens))
         sampling_params["logprobs"] = 0 if sampling_params.pop("logprobs", False) else None
         sampling_params.setdefault("repetition_penalty", self.config.get("repetition_penalty", 1.0))
         sampling_params = SamplingParams(max_tokens=max_tokens, **sampling_params)
         prompt_ids = _qwen2_5_vl_dedup_image_tokens(prompt_ids, self.model_config.processor)
+        prompt_len = len(prompt_ids)
         prompt = TokensPrompt(
             prompt_token_ids=prompt_ids, multi_modal_data={"image": image_data} if image_data else None
         )
@@ -398,6 +410,7 @@ class vLLMHttpServerBase:
                     lora_name=VLLM_LORA_NAME, lora_int_id=VLLM_LORA_INT_ID, lora_path=VLLM_LORA_PATH
                 )
 
+        engine_start = time.perf_counter()
         generator = self.engine.generate(
             prompt=prompt, sampling_params=sampling_params, request_id=request_id, lora_request=lora_request
         )
@@ -407,12 +420,64 @@ class vLLMHttpServerBase:
         async for output in generator:
             final_res = output
         assert final_res is not None
+        engine_elapsed = time.perf_counter() - engine_start
 
         token_ids = final_res.outputs[0].token_ids
         log_probs = None
         if sampling_params.logprobs is not None:
             log_probs = [logprobs[token_ids[i]].logprob for i, logprobs in enumerate(final_res.outputs[0].logprobs)]
-        return TokenOutput(token_ids=token_ids, log_probs=log_probs)
+        extra_fields = {
+            "profile": {
+                "request_id": request_id,
+                "prompt_len": prompt_len,
+                "output_len": len(token_ids),
+                "prompt_logprobs_k": sampling_params.prompt_logprobs,
+                "engine_generate": engine_elapsed,
+            }
+        }
+        if sampling_params.prompt_logprobs is not None:
+            extract_start = time.perf_counter()
+            prompt_logprobs, prompt_top_ids = [], []
+            prompt_logprob_entries = 0
+            for logprobs_dict in final_res.prompt_logprobs[1:]:
+                prompt_logprob_entries += len(logprobs_dict)
+                if sampling_params.prompt_logprobs == 0:
+                    token_id = next(iter(logprobs_dict))
+                    prompt_top_ids.append([int(token_id)])
+                    prompt_logprobs.append([logprobs_dict[token_id].logprob])
+                    continue
+
+                top_ids = [0] * sampling_params.prompt_logprobs
+                top_logprobs = [-1.0e9] * sampling_params.prompt_logprobs
+                for token_id, token_logprob in logprobs_dict.items():
+                    if token_logprob.rank <= sampling_params.prompt_logprobs:
+                        top_ids[token_logprob.rank - 1] = int(token_id)
+                        top_logprobs[token_logprob.rank - 1] = token_logprob.logprob
+                prompt_top_ids.append(top_ids)
+                prompt_logprobs.append(top_logprobs)
+            pad_width = max(sampling_params.prompt_logprobs, 1)
+            prompt_top_ids.append([0] * pad_width)
+            prompt_logprobs.append([-1.0e9] * pad_width)
+            extra_fields["prompt_ids"] = prompt_top_ids
+            extra_fields["prompt_logprobs"] = prompt_logprobs
+            extract_elapsed = time.perf_counter() - extract_start
+            extra_fields["profile"].update(
+                {
+                    "prompt_logprobs_extract": extract_elapsed,
+                    "prompt_logprobs_rows": len(prompt_logprobs),
+                    "prompt_logprobs_entries": prompt_logprob_entries,
+                }
+            )
+            print(
+                "[SkillRLTiming][vllm_async_server] "
+                f"request_id={request_id} prompt_len={prompt_len} output_len={len(token_ids)} "
+                f"prompt_logprobs_k={sampling_params.prompt_logprobs} "
+                f"engine_generate={engine_elapsed:.3f}s "
+                f"prompt_logprobs_extract={extract_elapsed:.3f}s "
+                f"rows={len(prompt_logprobs)} entries={prompt_logprob_entries}",
+                flush=True,
+            )
+        return TokenOutput(token_ids=token_ids, log_probs=log_probs, extra_fields=extra_fields)
 
     async def wake_up(self):
         if self.rollout_mode == RolloutMode.HYBRID:

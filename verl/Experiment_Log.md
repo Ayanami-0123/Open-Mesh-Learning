@@ -18,9 +18,9 @@
 > docker run --gpus all -it \
     --shm-size=16g \
     --name mutant_lab \
-    -v /data/home/huangqiyuan/verl:/workspace/verl \
-    -v /data/home/huangqiyuan/data:/workspace/data \
-    -v /data/home/huangqiyuan/models/qwen/Qwen2.5-7B-Instruct:/workspace/Qwen2.5-7B \
+    -v /data/home/huangqiyuan/mutant_grpo/verl:/workspace/verl \
+    -v /data/home/huangqiyuan/mutant_grpo/data:/workspace/data \
+    -v /data/home/huangqiyuan/mutant_grpo/models/qwen:/workspace/Qwen2.5-7B \
     verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2 \
     /bin/bash
 
@@ -363,3 +363,127 @@ git add .
 git commit -m "chore: remove large wheel files and add gitignore"
 git push origin main
 ```
+
+###2026.04.07 Problem18：ray OOM 问题
+现在，发现调大batchsize以后，ray经常会爆内存。
+
+### Problem18: API和本地模型测试的兼容性问题
+要用这个：
+python -m vllm.entrypoints.openai.api_server \
+    --model /data/home/huangqiyuan/mutant_grpo/models/qwen \
+    --tensor-parallel-size 2 \
+    --port 8000 \
+    --trust-remote-code
+
+### Problem19: Tmux用不了了
+unset TMUX
+pkill -9 -u $(whoami) tmux
+
+### Problem20： GitHub的公钥问题
+方案二：一劳永逸（配置 Config 文件）—— 强烈推荐
+在服务器上创建一个配置文件，让它自动匹配。
+
+编辑（或创建）config 文件：
+nano ~/.ssh/config
+
+把下面这段内容贴进去：
+
+Plaintext
+
+Host github.com
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/GitHubKey
+(按 Ctrl+O 保存，Ctrl+X 退出)
+
+修改权限（重要）：
+chmod 600 ~/.ssh/config
+
+直接验证：
+ssh -T git@github.com
+
+### Problem21: GitHub怎么创建新branch的问题：
+情况 A：该分支在本地/远程还不存在（创建并上传）
+如果你想创建一个全新的分支并把代码传上去，请按照以下步骤：
+
+创建并切换到新分支：
+git checkout -b <你的分支名>
+例如：git checkout -b feature-update
+
+添加更改到暂存区：
+git add .
+
+提交更改：
+git commit -m "你的提交信息"
+
+推送至远程服务器：
+git push origin <你的分支名>
+注意：第一次推送新分支时，Git 可能会提示你建立关联，按提示操作即可。
+
+情况 B：分支已经存在（切换并上传）
+如果你只是想把代码传到一个已经存在的分支上：
+
+切换到目标分支：
+git checkout <分支名>
+
+合并你在 main 上的修改（可选）：
+如果你刚才是在 main 分支下写的代码，切换分支前可以先用 git stash 暂存，或者切换后用 git merge main 把改动合过来。
+
+正常提交并推送：
+git add .
+git commit -m "你的提交信息"
+git push origin <分支名>
+
+### Problem22: 有人霸占了显卡。
+```bash
+#!/bin/bash
+
+# --- 配置区 ---
+TARGET_SCRIPT="run_qwen2_5_7b_grpo.sh"
+INTERVAL=1  # 每秒撞针一次
+
+# 检查函数：输入两个 GPU ID，检查是否都空闲（显存占用 < 100MiB）
+check_pair_free() {
+    local gpu_a=$1
+    local gpu_b=$2
+    
+    usage_a=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i $gpu_a | xargs)
+    usage_b=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i $gpu_b | xargs)
+
+    if [ "$usage_a" -lt 100 ] && [ "$usage_b" -lt 100 ]; then
+        return 0 # 成功，两张都空闲
+    else
+        return 1 # 失败
+    fi
+}
+
+echo "🎯 撞针启动：正在监控 (0,3) 和 (1,2) 组合..."
+echo "等待空闲中..."
+
+while true; do
+    # 尝试组合 0,3
+    if check_pair_free 0 3; then
+        echo -e "\n🔥 [$(date +%H:%M:%S)] 抢到 0,3 卡！正在启动任务..."
+        export CUDA_VISIBLE_DEVICES=0,3
+        bash $TARGET_SCRIPT
+        break
+    fi
+
+    # 尝试组合 1,2
+    if check_pair_free 1 2; then
+        echo -e "\n🔥 [$(date +%H:%M:%S)] 抢到 1,2 卡！正在启动任务..."
+        export CUDA_VISIBLE_DEVICES=1,2
+        bash $TARGET_SCRIPT
+        break
+    fi
+
+    # 终端打印进度，不换行
+    echo -ne "\r检测中... 当前时间: $(date +%H:%M:%S)"
+    sleep $INTERVAL
+done
+```
+
+最终解决的方法是：找到学长，让他出面交涉。
+
+### Problem23: 断点续传。
+du -sh * | sort -h 发现是我的断点太肥了。

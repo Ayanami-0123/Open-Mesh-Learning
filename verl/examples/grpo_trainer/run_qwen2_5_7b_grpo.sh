@@ -87,11 +87,15 @@ python -m verl.trainer.main_ppo \
     ${VAL_MAX_SAMPLES:+data.val_max_samples=$VAL_MAX_SAMPLES} \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
+    data.shuffle=False \
     +model.torch_dtype=bfloat16 \
     actor_rollout_ref.model.path=$MODEL_PATH \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.param=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.reduce=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.buffer=bfloat16 \
+    actor_rollout_ref.actor.uniform_group_kl_enable=true \
+    actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
+    actor_rollout_ref.actor.uniform_group_kl_coef=0.1 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \

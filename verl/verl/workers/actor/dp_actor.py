@@ -29,7 +29,7 @@ from torch.distributed.tensor import DTensor
 
 import verl.utils.torch_functional as verl_F
 from verl import DataProto
-from verl.trainer.ppo.core_algos import agg_loss, get_policy_loss_fn, kl_penalty
+from verl.trainer.ppo.core_algos import agg_loss, compute_uniform_group_kl_aux_loss, get_policy_loss_fn, kl_penalty
 from verl.utils.attention_utils import index_first_axis, pad_input, rearrange, unpad_input
 from verl.utils.device import get_device_id, get_device_name
 from verl.utils.fsdp_utils import FSDPModule, fsdp2_clip_grad_norm_
@@ -48,6 +48,8 @@ logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
 
 _MEI_SKIP_WARNED = False
+_UNIFORM_KL_DYN_WARNED = False
+_UNIFORM_KL_KEY_WARNED = False
 
 
 def _compute_mei_mean_for_batch(
@@ -460,6 +462,8 @@ class DataParallelPPOActor(BasePPOActor):
         non_tensor_select_keys = ["multi_modal_inputs"] if has_multi_modal_inputs else []
         if "uid" in data.non_tensor_batch:
             non_tensor_select_keys.append("uid")
+        if getattr(self.config, "uniform_group_kl_enable", False) and "token_level_rewards" in data.batch.keys():
+            select_keys.append("token_level_rewards")
 
         data = data.select(batch_keys=select_keys, non_tensor_batch_keys=non_tensor_select_keys)
 
@@ -590,6 +594,36 @@ class DataParallelPPOActor(BasePPOActor):
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
                         micro_batch_metrics["actor/kl_loss"] = kl_loss.detach().item() * loss_scale_factor
                         micro_batch_metrics["actor/kl_coef"] = self.config.kl_loss_coef
+
+                    if getattr(self.config, "uniform_group_kl_enable", False):
+                        global _UNIFORM_KL_DYN_WARNED, _UNIFORM_KL_KEY_WARNED
+                        coef_u = self.config.get("uniform_group_kl_coef", 0.0)
+                        if self.config.use_dynamic_bsz:
+                            if not _UNIFORM_KL_DYN_WARNED:
+                                logger.warning(
+                                    "uniform_group_kl skipped: use_dynamic_bsz reorders samples; "
+                                    "set actor.use_dynamic_bsz=false for this auxiliary loss."
+                                )
+                                _UNIFORM_KL_DYN_WARNED = True
+                        elif "uid" not in model_inputs or "token_level_rewards" not in model_inputs:
+                            if not _UNIFORM_KL_KEY_WARNED:
+                                logger.warning(
+                                    "uniform_group_kl skipped: batch needs non_tensor_batch['uid'] and "
+                                    "batch['token_level_rewards']."
+                                )
+                                _UNIFORM_KL_KEY_WARNED = True
+                        else:
+                            u_temp = float(self.config.get("uniform_group_kl_temperature", 1.0))
+                            u_loss = compute_uniform_group_kl_aux_loss(
+                                log_prob=log_prob,
+                                response_mask=response_mask,
+                                token_level_rewards=model_inputs["token_level_rewards"],
+                                uids=model_inputs["uid"],
+                                temperature=u_temp,
+                            )
+                            policy_loss = policy_loss + coef_u * u_loss
+                            micro_batch_metrics["actor/uniform_group_kl"] = u_loss.detach().item()
+                            micro_batch_metrics["actor/uniform_group_kl_coef"] = coef_u
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz

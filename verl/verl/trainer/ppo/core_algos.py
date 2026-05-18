@@ -1860,5 +1860,5 @@ def compute_uniform_group_kl_aux_loss(
     zg = z_stack[: n_groups * 4].view(n_groups, 4)
     p = torch.nn.functional.softmax(zg / temperature, dim=-1)
     uni = torch.full_like(p, 0.25)
-    kl_per_group = (uni * (torch.log(uni + eps) - torch.log(p + eps))).sum(dim=-1)
+    kl_per_group = (uni * (torch.log(uni) - torch.log(p))).sum(dim=-1)
     return kl_per_group.sum()

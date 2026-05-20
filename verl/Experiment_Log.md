@@ -491,3 +491,71 @@ du -sh * | sort -h 发现是我的断点太肥了。
 ### Problem24: 连接不上GitHub：
 eval "$(ssh-agent -s)"   # 启动 SSH 代理
 ssh-add ~/.ssh/id_ed25519 # 将私钥添加进去（如果是 rsa 密钥，路径换成 id_rsa）
+
+### Problem25: GitHub Rebase方法：
+没关系，这非常正常！正如你所直觉的，这说明远程的 `main` 分支上有人修改了 `verl/Experiment_Log.md` 这个文件，而你本地在做那个名为 `"How to deal with GitHub mis-connection"` 的提交时，也碰了同一个文件的相同位置。
+
+Git 现在把球踢给了你：**“这两边的改动我都想要，但我不知道怎么拼接，你来决定保留谁。”**
+
+别慌，我们现在处于 **Rebase 冲突暂停状态**，只需要三步就能完美解决：
+
+---
+
+### 🛠️ 第一步：打开文件，手动解决冲突
+
+用你的代码编辑器（比如 VS Code、Cursor 或 Vim）打开报错的文件：
+`verl/Experiment_Log.md`
+
+你会看到类似下面这样的符号，这就是冲突现场：
+
+```markdown
+<<<<<<< HEAD
+这里是远程仓库（GitHub）最新的内容
+=======
+这里是你本地刚刚写的内容（How to deal with GitHub mis-connection 里的改动）
+>>>>>>> 2b9a67b... How to deal with GitHub mis-connection
+
+```
+
+* **你要做的：** 删掉 `<<<<<<<`、`=======`、`>>>>>>>` 这些标记符号。
+* **调整内容：** 把代码理顺。你可以选择只留远程的，也可以选择只留你自己的，或者把两边的内容手工融合成一段完美的笔记。
+
+---
+
+### 🚀 第二步：告诉 Git 你搞定了
+
+文件修改并保存后，回到终端，把这个文件重新放回暂存区：
+
+```bash
+git add verl/Experiment_Log.md
+
+```
+
+*(注意：这里**千万不要**执行 `git commit`！)*
+
+---
+
+### 🏃 第三步：继续 Rebase
+
+让刚才暂停的变基流程继续往前走：
+
+```bash
+git rebase --continue
+
+```
+
+* **如果成功：** 终端会提示变基成功（Successfully rebased and updated）。这时候你本地的历史线就是一条完美的直线了，可以直接去 `git push` 啦！
+* **如果又停下来了：** 说明你本地可能还有其他提交也和远程冲突了，重复上述的第一步和第二步即可。
+
+---
+
+### 🛑 补充：如果改丢了/改乱了，想一键反悔怎么办？
+
+如果你在文件里删删改改，最后发现彻底乱了，想回到啥也没干之前的状态，随时可以运行这行命令**无伤流产**：
+
+```bash
+git rebase --abort
+
+```
+
+它会把你送回执行 `git pull --rebase` 之前的状态，就像一切都没发生过一样。你可以静下心来重新理思路。

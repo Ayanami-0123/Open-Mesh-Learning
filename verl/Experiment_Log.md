@@ -486,4 +486,8 @@ done
 最终解决的方法是：找到学长，让他出面交涉。
 
 ### Problem23: 断点续传。
-du -sh * | sort -h 发现是我的断点太肥了。所以需要手动清理断点。
+du -sh * | sort -h 发现是我的断点太肥了。
+
+### Problem24: 连接不上GitHub：
+eval "$(ssh-agent -s)"   # 启动 SSH 代理
+ssh-add ~/.ssh/id_ed25519 # 将私钥添加进去（如果是 rsa 密钥，路径换成 id_rsa）

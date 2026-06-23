@@ -1791,74 +1791,69 @@ def compute_uniform_group_kl_aux_loss(
     uids,
     temperature: float,
     eps: float = 1e-8,
+    sigma_min: float = 1.0,
 ) -> torch.Tensor:
     """
-    Group prompts by ``uid`` in first-appearance order; take every consecutive block of 4 prompts.
+    极致显存优化版：利用数据连续性，通过纯向量化(Vectorization)干掉循环。
+    完美规避计算图堆积，将显存开销降到最低。
 
-    For each prompt, let z = sum of trajectory log-probs over **correct** rollouts (reward sum > 0).
-    If none are correct, z is a large negative constant (no gradient).
-
-    For each block of 4, compute p = softmax(z / temperature), then KL(uniform(4) || p), and sum KL over
-    all complete blocks in the micro-batch.
-
-    Requires non-dynamic batching and dataset ordering where ``uid`` follows “four adjacent problems”.
-
-    Args:
-        log_prob: (B, L) token log probabilities under the current policy.
-        response_mask: (B, L) mask over response tokens.
-        token_level_rewards: (B, L) token-level rewards (correctness: sum > 0).
-        uids: length-B sequence (same order as batch rows) of prompt ids.
-        temperature: Softmax temperature T (> 0).
-        eps: Numerical stabilizer for log.
-
-    Returns:
-        Scalar tensor: sum of KL terms over all full groups of 4 prompts (before external coef ``mu``).
+    组内对 seq_logp 做 z-score 标准化后再进 softmax，等价于"每组自适应温度 = 组内 std"，
+    把 logits 锁在 ±sqrt(n) 量级、与 response 长度解耦，从而压住爆炸的 loss 数值。
+    关键：sigma_min 是温度下限（不是防零除的 epsilon）。纯 z-score 在 std->0 时会因
+    1/std 放大噪声方向而导致梯度发散；clamp(std, min=sigma_min) 在小方差区退化为固定温度
+    sigma_min，使梯度有界于 ~1/sigma_min。因此 sigma_min 应取"典型 seq_logp 组内 std"
+    的量级(O(1)~O(10))，而非 1e-8。mean/std 均 detach，使反向得到干净的 (1/s_eff)*(p-t)
+    梯度，而非额外的 1/std^2 项。
     """
     if temperature <= 0:
         raise ValueError("uniform_group_kl_temperature must be > 0")
 
+    # 1. 计算每个序列的 log 概率总和 (B,)
     seq_logp = (log_prob * response_mask).sum(dim=-1)
-    correct = token_level_rewards.sum(dim=-1) > 0
+    # 2. 判断每个序列是否正确 (B,)
+    correct = (token_level_rewards.sum(dim=-1) > 0).to(dtype=log_prob.dtype)
 
-    uid_list = np.asarray(uids, dtype=object)
-    n = uid_list.shape[0]
-    if n == 0:
-        return log_prob.sum() * 0.0
-
-    ordered_uids = []
-    seen = set()
-    for u in uid_list:
-        if u not in seen:
-            seen.add(u)
-            ordered_uids.append(u)
-
-    device = log_prob.device
-    dtype = log_prob.dtype
-    neg_z = torch.tensor(-1e9, device=device, dtype=dtype)
-
-    zs = []
-    for u in ordered_uids:
-        mask_uid = np.array([x == u for x in uid_list], dtype=bool)
-        idx = np.nonzero(mask_uid)[0]
-        idx_t = torch.tensor(idx, device=device, dtype=torch.long)
-        corr = correct[idx_t]
-        lp = seq_logp[idx_t]
-        if corr.any():
-            zs.append(lp[corr].mean())
-        else:
-            zs.append(neg_z)
-
-    if not zs:
-        return log_prob.sum() * 0.0
-
-    z_stack = torch.stack(zs, dim=0)
-    p_count = z_stack.size(0)
-    n_groups = p_count // 4
+    # 3. 核心优化：利用“每4个相邻样本是一组”的强假设，直接重塑矩阵
+    # 这样完全不需要中间的 for 循环、不创建任何临时 Tensor
+    B = seq_logp.size(0)
+    n_groups = B // 4
     if n_groups == 0:
         return log_prob.sum() * 0.0
 
-    zg = z_stack[: n_groups * 4].view(n_groups, 4)
-    p = torch.nn.functional.softmax(zg / temperature, dim=-1)
-    uni = torch.full_like(p, 0.25)
-    kl_per_group = (uni * (torch.log(uni) - torch.log(p))).sum(dim=-1)
-    return kl_per_group.sum()
+    # 将数据裁剪并直接重塑为 (N, 4) 的组结构
+    seq_logp_g = seq_logp[: n_groups * 4].view(n_groups, 4)
+    correct_g = correct[: n_groups * 4].view(n_groups, 4)
+
+    # 4. 组内 z-score 标准化（带温度下限）。
+    # mean 在 softmax 下平移不变，仅为可读性/数值习惯保留；detach 以免注入无意义梯度。
+    mu = seq_logp_g.mean(dim=-1, keepdim=True).detach()
+    # 总体方差 (ddof=0)。detach 后该"温度"在反向中视为常数。
+    var = (seq_logp_g - mu).pow(2).mean(dim=-1, keepdim=True)
+    std = torch.sqrt(var + eps).detach()
+    # clamp 不是防零除装饰：小方差区退化为固定温度 sigma_min，梯度才有界于 ~1/sigma_min。
+    s_eff = torch.clamp(std, min=sigma_min)
+
+    # 5. 计算当前策略的 log_softmax (N, 4)
+    # 此时中间完全没有产生任何碎片计算图，PyTorch 会在底层将其作为一个连续大矩阵高效处理
+    z = (seq_logp_g - mu) / (s_eff * temperature)
+    log_p = torch.nn.functional.log_softmax(z, dim=-1)
+
+    # 6. 识别合法样本：直接用 correct_g 矩阵作为 valid_mask
+    valid_mask = correct_g  # 形状: (n_groups, 4)
+    group_valid_counts = valid_mask.sum(dim=-1, keepdim=True)  # (n_groups, 1)
+
+    # 7. 动态构建目标均匀分布
+    target_p = valid_mask / torch.clamp(group_valid_counts, min=1.0)
+    
+    # 8. 在对数空间安全计算目标对数
+    log_target = torch.where(target_p > 0.0, torch.log(target_p + eps), torch.zeros_like(target_p))
+
+    # 9. 计算 KL 散度
+    kl_per_element = target_p * (log_target - log_p)
+    kl_per_group = kl_per_element.sum(dim=-1)
+
+    # 10. 如果整组 4 个全部都全错，一锅端抹去
+    group_mask = (group_valid_counts.squeeze(-1) > 0).to(dtype=log_prob.dtype)
+    final_kl = kl_per_group * group_mask
+
+    return final_kl.sum()

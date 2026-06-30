@@ -24,6 +24,7 @@ def default_compute_score(
     sandbox_fusion_url=None,
     concurrent_semaphore=None,
     memory_limit_mb=None,
+    enable_format_reward=False,
     **kwargs,
 ):
     """Compute the score for a given solution based on the data source.
@@ -48,7 +49,7 @@ def default_compute_score(
     elif data_source in ["lighteval/MATH", "ligheval/MATH", "DigitalLearningGmbH/MATH-lighteval", "HuggingFaceH4/MATH-500"]:
         from . import math_reward
 
-        res = math_reward.compute_score(solution_str, ground_truth)
+        res = math_reward.compute_score(solution_str, ground_truth, enable_format_reward=enable_format_reward)
         # [Optional] Math-Verify Integration
         # For enhanced accuracy, consider utilizing Math-Verify (https://github.com/huggingface/Math-Verify).
         # Note: Math-Verify needs to be manually installed via pip: `pip install math-verify`.

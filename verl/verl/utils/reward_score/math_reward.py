@@ -14,7 +14,7 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 
 
-def compute_score(solution_str, ground_truth) -> float:
+def compute_score(solution_str, ground_truth, enable_format_reward=False) -> float:
     retval = 0.0
     try:
         string_in_last_boxed = last_boxed_only_string(solution_str)
@@ -22,8 +22,9 @@ def compute_score(solution_str, ground_truth) -> float:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.0
-            # 格式分：答案不正确，但轨迹中恰好包含一个内容非空的 \boxed{}（格式未崩）时，给 0.1 兜底分
-            elif solution_str.count("\\boxed") == 1 and answer.strip():
+            # 格式分（仅训练时启用）：答案不正确，但轨迹中恰好包含一个内容非空的 \boxed{}（格式未崩）时，给 0.1 兜底分。
+            # 验证/测试默认关闭，保证评估指标是纯正确率。
+            elif enable_format_reward and solution_str.count("\\boxed") == 1 and answer.strip():
                 retval = 0.1
     except Exception as e:
         print(e)

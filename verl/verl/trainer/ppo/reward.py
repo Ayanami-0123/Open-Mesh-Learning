@@ -108,7 +108,7 @@ def get_custom_reward_fn(config: DictConfig) -> Optional[RawRewardFn]:
 
 
 def load_reward_manager(
-    config: DictConfig, tokenizer: Any, num_examine: int, **reward_kwargs: Any
+    config: DictConfig, tokenizer: Any, num_examine: int, enable_format_reward: bool = False, **reward_kwargs: Any
 ) -> AbstractRewardManager:
     """
     Load and initialize a reward manager based on the configuration.
@@ -117,6 +117,9 @@ def load_reward_manager(
         config: PPO trainer configuration object containing reward_model fields.
         tokenizer: Tokenizer object used for processing text.
         num_examine: Number of samples to examine.
+        enable_format_reward: Whether to enable the format bonus in default_compute_score.
+            Should be True only for the training reward fn; keep False for validation so that
+            eval metrics report pure correctness. Ignored when a custom reward fn is used.
         **reward_kwargs: Additional keyword arguments for the reward manager.
 
     Returns:
@@ -152,9 +155,10 @@ def load_reward_manager(
                 sandbox_fusion_url=sandbox_url,
                 concurrent_semaphore=_concurrent_semaphore,
                 memory_limit_mb=memory_limit_mb,
+                enable_format_reward=enable_format_reward,
             )
         else:
-            final_compute_score = default_compute_score
+            final_compute_score = partial(default_compute_score, enable_format_reward=enable_format_reward)
 
     # Instantiate and return the reward manager with the specified parameters
     return reward_manager_cls(
@@ -201,7 +205,7 @@ def compute_reward_async(data: DataProto, config=None, tokenizer=None, reward_fn
 
         warnings.warn("using config and tokenizer with compute_reward_async is deprecated", stacklevel=2)
         reward_fn = load_reward_manager(
-            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+            config, tokenizer, num_examine=0, enable_format_reward=True, **config.reward_model.get("reward_kwargs", {})
         )
 
     return compute_reward(data, reward_fn)

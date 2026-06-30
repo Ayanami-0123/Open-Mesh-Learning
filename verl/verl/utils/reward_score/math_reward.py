@@ -22,6 +22,9 @@ def compute_score(solution_str, ground_truth) -> float:
             answer = remove_boxed(string_in_last_boxed)
             if is_equiv(answer, ground_truth):
                 retval = 1.0
+            # 格式分：答案不正确，但轨迹中恰好包含一个内容非空的 \boxed{}（格式未崩）时，给 0.1 兜底分
+            elif solution_str.count("\\boxed") == 1 and answer.strip():
+                retval = 0.1
     except Exception as e:
         print(e)
 

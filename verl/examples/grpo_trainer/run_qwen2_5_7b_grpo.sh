@@ -11,7 +11,7 @@ export HYDRA_FULL_ERROR=1
 
 # 选用的 GPU 1 和 3 之间没有 NVLink（只有 PCIe/PIX），容器内 PCIe P2P 会导致 NCCL 卡死。
 # 禁用 P2P，让 NCCL 走共享内存通信（略慢但不会 hang）。
-export NCCL_P2P_DISABLE=1
+# export NCCL_P2P_DISABLE=1
 # 如需排查 NCCL 卡在哪一步，临时打开下面这行看详细日志：
 # export NCCL_DEBUG=INFO
 
@@ -46,13 +46,13 @@ ANALYSIS=True
 # 对于 GRPO，通常 train_batch_size 表示每一轮从数据集中取出的 Prompt 数量
 # 而 rollout.n (16) 是每个 Prompt 生成的数量
 # 关键!!! ppo_mini_batch_size 在 GRPO 模式下必须等于 train_batch_size
-train_batch_size="${TRAIN_BATCH_SIZE:-8}"
+train_batch_size="${TRAIN_BATCH_SIZE:-32}"
 ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-$train_batch_size}"
 ppo_micro_batch_size="${PPO_MICRO_BATCH_SIZE:-4}"
 ROLLOUT_N="${ROLLOUT_N:-4}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
-USE_KL_LOSS="${USE_KL_LOSS:-False}"
-KL_LOSS_COEF="${KL_LOSS_COEF:-0.001}"
+USE_KL_LOSS="${USE_KL_LOSS:-True}"
+KL_LOSS_COEF="${KL_LOSS_COEF:-0.01}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
 MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-1024}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}"
@@ -96,9 +96,9 @@ python -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.param=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.reduce=bfloat16 \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.buffer=bfloat16 \
-    actor_rollout_ref.actor.uniform_group_kl_enable=True \
+    actor_rollout_ref.actor.uniform_group_kl_enable=False \
     actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
-    actor_rollout_ref.actor.uniform_group_kl_coef=0.001 \
+    actor_rollout_ref.actor.uniform_group_kl_coef=0.01 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \

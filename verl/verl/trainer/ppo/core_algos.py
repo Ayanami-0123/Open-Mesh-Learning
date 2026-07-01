@@ -1766,6 +1766,7 @@ def compute_policy_loss_rollout_correction_wrapper(
 
 def compute_uniform_group_kl_aux_loss(
     log_prob: torch.Tensor,
+    ref_log_prob: torch.Tensor,
     response_mask: torch.Tensor,
     token_level_rewards: torch.Tensor,
     uids,
@@ -1789,7 +1790,10 @@ def compute_uniform_group_kl_aux_loss(
         raise ValueError("uniform_group_kl_temperature must be > 0")
 
     # 1. 计算每个序列的 log 概率总和 (B,)
-    seq_logp = (log_prob * response_mask).sum(dim=-1)
+    seq_curr_logp = (log_prob * response_mask).sum(dim=-1)
+    seq_ref_logp = (ref_log_prob * response_mask).sum(dim=-1)
+    seq_logp = seq_curr_logp - seq_ref_logp
+    
     # 2. 判断每个序列是否正确 (B,)
     correct = (token_level_rewards.sum(dim=-1) > 0).to(dtype=log_prob.dtype)
 

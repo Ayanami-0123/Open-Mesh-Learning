@@ -448,7 +448,7 @@ class DataParallelPPOActor(BasePPOActor):
             "old_log_probs",
             "advantages",
         ]
-        if self.config.use_kl_loss:
+        if self.config.use_kl_loss or getattr(self.config, "uniform_group_kl_enable", False):
             select_keys.append("ref_log_prob")
         # Include pre-computed IS weights if present in batch
         # Weights are computed centrally in trainer and added to batch when algorithm.rollout_is=True
@@ -605,7 +605,11 @@ class DataParallelPPOActor(BasePPOActor):
                                     "set actor.use_dynamic_bsz=false for this auxiliary loss."
                                 )
                                 _UNIFORM_KL_DYN_WARNED = True
-                        elif "uid" not in model_inputs or "token_level_rewards" not in model_inputs:
+                        elif (
+                            "uid" not in model_inputs 
+                            or "token_level_rewards" not in model_inputs 
+                            or "ref_log_prob" not in model_inputs
+                        ):
                             if not _UNIFORM_KL_KEY_WARNED:
                                 logger.warning(
                                     "uniform_group_kl skipped: batch needs non_tensor_batch['uid'] and "
@@ -616,6 +620,7 @@ class DataParallelPPOActor(BasePPOActor):
                             u_temp = float(self.config.get("uniform_group_kl_temperature", 1.0))
                             u_loss = compute_uniform_group_kl_aux_loss(
                                 log_prob=log_prob,
+                                ref_log_prob=model_inputs["ref_log_prob"],
                                 response_mask=response_mask,
                                 token_level_rewards=model_inputs["token_level_rewards"],
                                 uids=model_inputs["uid"],

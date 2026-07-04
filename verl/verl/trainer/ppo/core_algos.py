@@ -1812,14 +1812,14 @@ def compute_uniform_group_kl_aux_loss(
     # mean 在 softmax 下平移不变，仅为可读性/数值习惯保留；detach 以免注入无意义梯度。
     mu = seq_logp_g.mean(dim=-1, keepdim=True).detach()
     # 总体方差 (ddof=0)。detach 后该"温度"在反向中视为常数。
-    var = (seq_logp_g - mu).pow(2).mean(dim=-1, keepdim=True)
-    std = torch.sqrt(var + eps).detach()
+    # var = (seq_logp_g - mu).pow(2).mean(dim=-1, keepdim=True)
+    # std = torch.sqrt(var + eps).detach()
     # clamp 不是防零除装饰：小方差区退化为固定温度 sigma_min，梯度才有界于 ~1/sigma_min。
-    s_eff = torch.clamp(std, min=sigma_min)
+    # s_eff = torch.clamp(std, min=sigma_min)
 
     # 5. 计算当前策略的 log_softmax (N, 4)
     # 此时中间完全没有产生任何碎片计算图，PyTorch 会在底层将其作为一个连续大矩阵高效处理
-    z = (seq_logp_g - mu) / (s_eff * temperature)
+    z = (seq_logp_g - mu) / (temperature)
     log_p = torch.nn.functional.log_softmax(z, dim=-1)
 
     # 6. 识别合法样本：直接用 correct_g 矩阵作为 valid_mask

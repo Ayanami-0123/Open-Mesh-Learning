@@ -65,6 +65,12 @@ TEST_FREQ="${TEST_FREQ:-5}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-}"
 VAL_BEFORE_TRAIN="${VAL_BEFORE_TRAIN:-True}"
+# 验证阶段采样配置：用于计算 pass@k (verl 里叫 best@N)。
+# 默认贪心单样本只能得到 pass@1；这里打开采样、每个 prompt 采 VAL_N 个，
+# wandb 会自动出现 val-core/.../best@2,4,8,16/mean（即 pass@2/4/8/16）。
+VAL_N="${VAL_N:-128}"
+VAL_TEMPERATURE="${VAL_TEMPERATURE:-1.0}"
+VAL_TOP_P="${VAL_TOP_P:-0.95}"
 
 # 4. 设备映射（确保 NPU/GPU 数量匹配）
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-2}"
@@ -98,7 +104,7 @@ python -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.buffer=bfloat16 \
     actor_rollout_ref.actor.uniform_group_kl_enable=False \
     actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
-    actor_rollout_ref.actor.uniform_group_kl_coef=0.01 \
+    actor_rollout_ref.actor.uniform_group_kl_coef=0.0001 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.optim.lr=1e-6 \
@@ -121,6 +127,10 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.do_sample=True \
     actor_rollout_ref.rollout.temperature=$TEMPERATURE \
     actor_rollout_ref.rollout.top_p=0.95 \
+    actor_rollout_ref.rollout.val_kwargs.n=$VAL_N \
+    actor_rollout_ref.rollout.val_kwargs.do_sample=True \
+    actor_rollout_ref.rollout.val_kwargs.temperature=$VAL_TEMPERATURE \
+    actor_rollout_ref.rollout.val_kwargs.top_p=$VAL_TOP_P \
     actor_rollout_ref.rollout.enable_chunked_prefill=False \
     actor_rollout_ref.rollout.enable_prefix_caching=True \
     actor_rollout_ref.rollout.max_num_batched_tokens=8192 \

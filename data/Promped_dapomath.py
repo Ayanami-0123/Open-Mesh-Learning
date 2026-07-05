@@ -2,7 +2,7 @@ import pandas as pd
 import json
 
 # 1. 加载这个数据集
-df = pd.read_parquet('dapomath_7000_final_aligned.parquet')
+df = pd.read_parquet('~/mutant_grpo/data/dapomath.parquet')
 
 def reshape_prompt(row):
     raw_prompt = row['prompt']
@@ -39,7 +39,8 @@ You must strictly adhere to the following response sequence for every mathematic
 
     new_prompt = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": problem_text}
+        {"role": "user", "content": problem_text},
+        {'role': 'assistant', 'content': f"<thinking>\n<Method Name>{row['method_name']}</Method Name>\n<Method Description>{row['method_idea']}</Method Description>"}
     ]
     return new_prompt
 
@@ -47,5 +48,5 @@ You must strictly adhere to the following response sequence for every mathematic
 df['raw_prompt'] = df.apply(reshape_prompt, axis=1)
 df['data_source'] = "lighteval/MATH"
 print(df['prompt'].iloc[0][0]['role']) # 预期输出: system
-print(df['prompt'].iloc[0][0]['content'][:50]) # 预期输出 system prompt 的开头
-df.to_parquet('dapomath_7000_final_aligned.parquet', index=False)
+print(df['prompt'].iloc[0][0]['content']) # 预期输出 system prompt 的开头
+df.to_parquet('~/mutant_grpo/data/dapomath.parquet', index=False)

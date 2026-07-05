@@ -32,8 +32,8 @@ PROFILE_RANKS="[1,2]"
 
 # 2. 数据路径
 SAVE_PATH="${SAVE_PATH:-${PROJECT_ROOT}/profile_data}" # profiler 保存路径
-TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/math_final_aligned.parquet}" # 训练数据路径
-TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/MATH-500_fixed.parquet}" # 测试数据路径
+TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/dapomath_7000_final_aligned.parquet}" # 训练数据路径
+TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/AIME26_fixed.parquet}" # 测试数据路径
 TRAIN_FILES="${TRAIN_FILES:-$TRAIN_PATH}"
 VAL_FILES="${VAL_FILES:-$TEST_PATH}"
 MODEL_PATH="${MODEL_PATH:-/workspace/Qwen2.5-7B}" # 模型路径
@@ -68,7 +68,7 @@ VAL_BEFORE_TRAIN="${VAL_BEFORE_TRAIN:-True}"
 # 验证阶段采样配置：用于计算 pass@k (verl 里叫 best@N)。
 # 默认贪心单样本只能得到 pass@1；这里打开采样、每个 prompt 采 VAL_N 个，
 # wandb 会自动出现 val-core/.../best@2,4,8,16/mean（即 pass@2/4/8/16）。
-VAL_N="${VAL_N:-128}"
+VAL_N="${VAL_N:-16}"
 VAL_TEMPERATURE="${VAL_TEMPERATURE:-1.0}"
 VAL_TOP_P="${VAL_TOP_P:-0.95}"
 
@@ -122,7 +122,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.n=$ROLLOUT_N \
     actor_rollout_ref.rollout.do_sample=True \
     actor_rollout_ref.rollout.temperature=$TEMPERATURE \

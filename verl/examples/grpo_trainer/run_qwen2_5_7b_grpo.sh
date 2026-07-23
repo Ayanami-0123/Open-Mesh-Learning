@@ -51,10 +51,10 @@ TEMPERATURE="${TEMPERATURE:-1.0}"
 USE_KL_LOSS="${USE_KL_LOSS:-False}"
 KL_LOSS_COEF="${KL_LOSS_COEF:-0.01}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
-MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-4096}"
+MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-8192}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}"
-PPO_MAX_TOKEN_LEN_PER_GPU="${PPO_MAX_TOKEN_LEN_PER_GPU:-8192}"
-LOG_PROB_MAX_TOKEN_LEN_PER_GPU="${LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-8192}"
+PPO_MAX_TOKEN_LEN_PER_GPU="${PPO_MAX_TOKEN_LEN_PER_GPU:-10000}"
+LOG_PROB_MAX_TOKEN_LEN_PER_GPU="${LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-10000}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-2}"
 TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-}"
 SAVE_FREQ="${SAVE_FREQ:-100}"
@@ -70,7 +70,7 @@ VAL_TEMPERATURE="${VAL_TEMPERATURE:-1.0}"
 VAL_TOP_P="${VAL_TOP_P:-0.95}"
 
 # 4. 设备映射（确保 NPU/GPU 数量匹配）
-N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-8}"
+N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
 
 # 5. 项目名称
 PROJECT_NAME="verl_m_grpo_math"
@@ -121,7 +121,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=$ROLLOUT_N \
     actor_rollout_ref.rollout.do_sample=True \
     actor_rollout_ref.rollout.temperature=$TEMPERATURE \

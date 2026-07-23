@@ -107,6 +107,84 @@ def _compute_mei_mean_for_batch(
     return float(np.mean(mei_vals)) if mei_vals else 0.0
 
 
+def _compute_mei_mean_for_rmpad_batch(
+    logits_rmpad: torch.Tensor,
+    indices: torch.Tensor,
+    responses: torch.Tensor,
+    response_mask: torch.Tensor,
+    uids,
+    batch_size: int,
+    seqlen: int,
+    response_length: int,
+    eps: float = 1e-12,
+    token_chunk_size: int = 16,
+) -> float:
+    """Compute MEI from remove-padding logits without materializing dense response logits.
+
+    The persistent MEI accumulators live on CPU. GPU memory is bounded by
+    ``batch_size * token_chunk_size * vocab_size`` during the softmax chunk.
+    """
+    with torch.no_grad():
+        device = logits_rmpad.device
+        num_classes = logits_rmpad.shape[-1]
+        metric_dtype = torch.float32
+
+        response_offsets = torch.arange(seqlen - response_length - 1, seqlen - 1, device=device)
+        batch_offsets = torch.arange(batch_size, device=device).unsqueeze(1) * seqlen
+        flat_response_positions = (batch_offsets + response_offsets.unsqueeze(0)).reshape(-1)
+
+        indices = indices.reshape(-1).to(device=device)
+        rmpad_positions = torch.searchsorted(indices, flat_response_positions)
+        in_bounds = rmpad_positions < indices.numel()
+        safe_positions = torch.clamp(rmpad_positions, max=max(indices.numel() - 1, 0))
+        exact_match = in_bounds & (indices[safe_positions] == flat_response_positions)
+
+        rmpad_positions = safe_positions.reshape(batch_size, response_length)
+        exact_match = exact_match.reshape(batch_size, response_length)
+        mask = response_mask.to(device=device, dtype=metric_dtype) * exact_match.to(dtype=metric_dtype)
+
+        prob_sum = torch.zeros(batch_size, num_classes, dtype=metric_dtype, device="cpu")
+        counts = torch.zeros(batch_size, num_classes, dtype=metric_dtype, device="cpu")
+        responses_cpu = responses.detach().to(device="cpu")
+
+        for start in range(0, response_length, token_chunk_size):
+            end = min(start + token_chunk_size, response_length)
+            mask_chunk = mask[:, start:end]
+            if not torch.any(mask_chunk):
+                continue
+
+            idx_chunk = rmpad_positions[:, start:end].reshape(-1)
+            logits_chunk = logits_rmpad.index_select(0, idx_chunk).reshape(batch_size, end - start, num_classes)
+            probs_chunk = torch.softmax(logits_chunk.float(), dim=-1)
+            probs_chunk.mul_(mask_chunk.unsqueeze(-1))
+
+            prob_sum.add_(probs_chunk.sum(dim=1).to(device="cpu"))
+            counts.scatter_add_(dim=1, index=responses_cpu[:, start:end], src=mask_chunk.to(device="cpu"))
+
+            del logits_chunk, probs_chunk
+
+        v = counts - prob_sum
+        sqnorm = (v * v).sum(dim=-1)
+
+    sum_v = {}
+    sum_sqnorm = defaultdict(float)
+    uid_arr = np.asarray(uids)
+    for i in range(batch_size):
+        uk = uid_arr[i]
+        if uk not in sum_v:
+            sum_v[uk] = v[i].clone()
+        else:
+            sum_v[uk] = sum_v[uk] + v[i]
+        sum_sqnorm[uk] += sqnorm[i].item()
+
+    mei_vals = []
+    for uk, avec in sum_v.items():
+        b_den = sum_sqnorm[uk]
+        mei_vals.append((avec * avec).sum().item() / (b_den + eps))
+
+    return float(np.mean(mei_vals)) if mei_vals else 0.0
+
+
 class DataParallelPPOActor(BasePPOActor):
     """FSDP DataParallel PPO Actor or Ref worker
 
@@ -153,8 +231,8 @@ class DataParallelPPOActor(BasePPOActor):
             self.scaler = None
 
     def _forward_micro_batch(
-        self, micro_batch, temperature, calculate_entropy=False
-    ) -> tuple[torch.Tensor | None, torch.Tensor, torch.Tensor | None]:
+        self, micro_batch, temperature, calculate_entropy=False, calculate_mei=False
+    ) -> tuple[torch.Tensor | None, torch.Tensor, torch.Tensor | None, float | None]:
         """
         Returns:
             entropy: ``(bs, response_len)`` or None.
@@ -170,6 +248,7 @@ class DataParallelPPOActor(BasePPOActor):
 
         with torch.autocast(device_type=self.device_name, dtype=self.param_dtype):
             logits_resp = None
+            mei_val = None
             input_ids = micro_batch["input_ids"]
             batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch["attention_mask"]
@@ -255,6 +334,19 @@ class DataParallelPPOActor(BasePPOActor):
                     logits_rmpad = output.logits.squeeze(0)  # (total_nnz, vocab_size)
                     logits_rmpad.div_(temperature)
 
+                    if calculate_mei and "uid" in micro_batch and not self.use_ulysses_sp:
+                        mei_val = _compute_mei_mean_for_rmpad_batch(
+                            logits_rmpad=logits_rmpad,
+                            indices=indices,
+                            responses=micro_batch["responses"],
+                            response_mask=micro_batch["response_mask"],
+                            uids=micro_batch["uid"],
+                            batch_size=batch_size,
+                            seqlen=seqlen,
+                            response_length=response_length,
+                            token_chunk_size=int(self.config.get("mei_token_chunk_size", 16)),
+                        )
+
                     # if use_sp: ((total_nnz / sp) + pad) ; if not use_sp: (batch, seqlen)
                     inplace_backward = True
                     if calculate_entropy:
@@ -335,14 +427,22 @@ class DataParallelPPOActor(BasePPOActor):
                     logits.div_(temperature)
                     logits = logits[:, -response_length - 1 : -1, :]  # (bsz, response_length, vocab_size)
                     logits_resp = logits
+                    if calculate_mei and "uid" in micro_batch:
+                        mei_val = _compute_mei_mean_for_batch(
+                            logits_resp,
+                            micro_batch["responses"],
+                            micro_batch["response_mask"],
+                            micro_batch["uid"],
+                            token_chunk_size=int(self.config.get("mei_token_chunk_size", 16)),
+                        )
                     log_probs = logprobs_from_logits(logits, micro_batch["responses"])
                     if calculate_entropy:
                         if not self.config.entropy_checkpointing:
-                            entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
+                            entropy = self.compute_entropy_from_logits(logits)  # (bsz, response_length)
                         else:
-                            entropy = torch.utils.checkpoint.checkpoint(verl_F.entropy_from_logits, logits)
+                            entropy = torch.utils.checkpoint.checkpoint(self.compute_entropy_from_logits, logits)
 
-            return entropy, log_probs, logits_resp
+            return entropy, log_probs, logits_resp, mei_val
 
     def _optimizer_step(self):
         assert self.config.grad_clip is not None
@@ -413,7 +513,7 @@ class DataParallelPPOActor(BasePPOActor):
             micro_batch = micro_batch.to(get_device_id())
             model_inputs = {**micro_batch.batch, **micro_batch.non_tensor_batch}
             with torch.no_grad():
-                entropy, log_probs, _ = self._forward_micro_batch(
+                entropy, log_probs, _, _ = self._forward_micro_batch(
                     model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
                 )
             log_probs_lst.append(log_probs)
@@ -507,17 +607,24 @@ class DataParallelPPOActor(BasePPOActor):
                     calculate_entropy = False
                     if entropy_coeff != 0:
                         calculate_entropy = True
-                    entropy, log_prob, logits_resp = self._forward_micro_batch(
-                        model_inputs, temperature=temperature, calculate_entropy=calculate_entropy
+                    calculate_mei = getattr(self.config, "compute_mei_metric", True) and "uid" in model_inputs
+                    entropy, log_prob, logits_resp, mei_val = self._forward_micro_batch(
+                        model_inputs,
+                        temperature=temperature,
+                        calculate_entropy=calculate_entropy,
+                        calculate_mei=calculate_mei,
                     )
 
                     if getattr(self.config, "compute_mei_metric", True):
-                        if logits_resp is not None and "uid" in model_inputs:
+                        if mei_val is not None:
+                            micro_batch_metrics["algorithm/mei_mean"] = mei_val
+                        elif logits_resp is not None and "uid" in model_inputs:
                             mei_val = _compute_mei_mean_for_batch(
                                 logits_resp,
                                 model_inputs["responses"],
                                 response_mask,
                                 model_inputs["uid"],
+                                token_chunk_size=int(self.config.get("mei_token_chunk_size", 16)),
                             )
                             micro_batch_metrics["algorithm/mei_mean"] = mei_val
                         else:

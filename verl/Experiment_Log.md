@@ -18,10 +18,9 @@
 > docker run --gpus all -it \
     --shm-size=16g \
     --name mutant_lab \
-    -v /data/home/huangqiyuan/mutant_grpo/verl:/workspace/verl \
-    -v /data/home/huangqiyuan/mutant_grpo/data:/workspace/data \
-    -v /data/home/huangqiyuan/mutant_grpo/models/qwen:/workspace/Qwen2.5-7B \
-    -v /data2/share/huangqiyuan/ray_tmp:/data2/share/huangqiyuan/ray_tmp\
+    -v ~/Project1/verl:/workspace/verl \
+    -v ~/Project1/data:/workspace/data \
+    -v ~/Project1/models:/workspace/models \
     verlai/verl:app-verl0.6-transformers4.56.1-sglang0.5.2-mcore0.13.0-te2.2 \
     /bin/bash
 

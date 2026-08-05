@@ -26,7 +26,9 @@ from verl.trainer.ppo.core_algos import (
     compute_grpo_vectorized_outcome_advantage,
     compute_rloo_outcome_advantage,
     compute_rloo_vectorized_outcome_advantage,
+    compute_uniform_group_kl_aux_loss,
     get_adv_estimator_fn,
+    kl_penalty_forward,
     register_adv_est,
 )
 
@@ -195,6 +197,72 @@ def test_multi_turn_compute_gae_advantage_return():
     assert torch.equal(adv1, adv2), f"{adv1=}, {adv2=}"
     assert torch.equal(ret1, ret2), f"{ret1=}, {ret2=}"
     print(f" [CORRECT] \n\n{adv1=}, \n\n{ret1=}")
+
+
+def test_js_penalty_forward_matches_importance_weighted_estimator():
+    logprob = torch.log(torch.tensor([[0.7, 0.2, 0.5]], dtype=torch.float32))
+    ref_logprob = torch.log(torch.tensor([[0.3, 0.4, 0.5]], dtype=torch.float32))
+
+    ref_to_logprob = ref_logprob - logprob
+    ratio = torch.exp(ref_to_logprob)
+    logprob_to_mixture = torch.log(torch.tensor(2.0)) - torch.log1p(ratio)
+    ref_logprob_to_mixture = ref_to_logprob + logprob_to_mixture
+    expected = 0.5 * (logprob_to_mixture + ratio * ref_logprob_to_mixture)
+
+    actual = kl_penalty_forward(logprob, ref_logprob, "js")
+
+    assert torch.allclose(actual, expected, rtol=1e-6, atol=1e-6)
+    assert torch.all(actual >= 0)
+    assert torch.equal(kl_penalty_forward(logprob, logprob, "js"), torch.zeros_like(logprob))
+
+
+def test_uniform_group_aux_loss_supports_kl_and_js():
+    log_prob = torch.tensor([[0.0], [1.0], [2.0], [3.0]], dtype=torch.float32)
+    ref_log_prob = torch.zeros_like(log_prob)
+    response_mask = torch.ones_like(log_prob)
+    token_level_rewards = torch.ones_like(log_prob)
+    uids = np.array(["u0", "u0", "u0", "u0"])
+
+    logits = log_prob.squeeze(-1) - log_prob.mean()
+    log_p = torch.nn.functional.log_softmax(logits, dim=-1)
+    p = log_p.exp()
+    target = torch.full_like(p, 0.25)
+    log_target = torch.log(target)
+
+    expected_kl = (target * (log_target - log_p)).sum()
+    mixture = 0.5 * (target + p)
+    expected_js = 0.5 * ((target * (log_target - torch.log(mixture))).sum() + (p * (log_p - torch.log(mixture))).sum())
+
+    actual_kl = compute_uniform_group_kl_aux_loss(
+        log_prob, ref_log_prob, response_mask, token_level_rewards, uids, temperature=1.0
+    )
+    actual_js = compute_uniform_group_kl_aux_loss(
+        log_prob,
+        ref_log_prob,
+        response_mask,
+        token_level_rewards,
+        uids,
+        temperature=1.0,
+        divergence_type="js",
+    )
+
+    assert torch.allclose(actual_kl, expected_kl, rtol=1e-6, atol=1e-6)
+    assert torch.allclose(actual_js, expected_js, rtol=1e-6, atol=1e-6)
+    assert actual_js <= actual_kl
+
+
+def test_uniform_group_aux_loss_rejects_unknown_divergence_type():
+    log_prob = torch.zeros(4, 1)
+    with pytest.raises(ValueError):
+        compute_uniform_group_kl_aux_loss(
+            log_prob,
+            log_prob,
+            torch.ones_like(log_prob),
+            torch.ones_like(log_prob),
+            np.array(["u0", "u0", "u0", "u0"]),
+            temperature=1.0,
+            divergence_type="bad",
+        )
 
 
 def _make_group_index(batch_size: int, num_groups: int) -> np.ndarray:

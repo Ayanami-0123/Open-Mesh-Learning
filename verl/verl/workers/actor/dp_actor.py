@@ -693,9 +693,8 @@ class DataParallelPPOActor(BasePPOActor):
                     if self.config.use_kl_loss:
                         ref_log_prob = model_inputs["ref_log_prob"]
                         # compute kl loss
-                        kld = kl_penalty(
-                            logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=self.config.kl_loss_type
-                        )
+                        divergence_type = self.config.get("divergence_type") or self.config.get("kl_loss_type", "kl")
+                        kld = kl_penalty(logprob=log_prob, ref_logprob=ref_log_prob, kl_penalty=divergence_type)
                         kl_loss = agg_loss(loss_mat=kld, loss_mask=response_mask, loss_agg_mode=loss_agg_mode)
 
                         policy_loss = policy_loss + kl_loss * self.config.kl_loss_coef
@@ -713,8 +712,8 @@ class DataParallelPPOActor(BasePPOActor):
                                 )
                                 _UNIFORM_KL_DYN_WARNED = True
                         elif (
-                            "uid" not in model_inputs 
-                            or "token_level_rewards" not in model_inputs 
+                            "uid" not in model_inputs
+                            or "token_level_rewards" not in model_inputs
                             or "ref_log_prob" not in model_inputs
                         ):
                             if not _UNIFORM_KL_KEY_WARNED:
@@ -725,6 +724,11 @@ class DataParallelPPOActor(BasePPOActor):
                                 _UNIFORM_KL_KEY_WARNED = True
                         else:
                             u_temp = float(self.config.get("uniform_group_kl_temperature", 1.0))
+                            divergence_type = (
+                                self.config.get("uniform_group_divergence_type")
+                                or self.config.get("divergence_type")
+                                or "kl"
+                            )
                             u_loss = compute_uniform_group_kl_aux_loss(
                                 log_prob=log_prob,
                                 ref_log_prob=model_inputs["ref_log_prob"],
@@ -732,9 +736,10 @@ class DataParallelPPOActor(BasePPOActor):
                                 token_level_rewards=model_inputs["token_level_rewards"],
                                 uids=model_inputs["uid"],
                                 temperature=u_temp,
+                                divergence_type=divergence_type,
                             )
                             policy_loss = policy_loss + coef_u * u_loss
-                            micro_batch_metrics["actor/uniform_group_kl"] = u_loss.detach().item()
+                            micro_batch_metrics[f"actor/uniform_group_{divergence_type}"] = u_loss.detach().item()
                             micro_batch_metrics["actor/uniform_group_kl_coef"] = coef_u
 
                     if self.config.use_dynamic_bsz:

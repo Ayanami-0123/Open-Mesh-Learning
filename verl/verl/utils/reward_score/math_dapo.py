@@ -176,14 +176,20 @@ def is_correct_minerva(
     Returns:
         Tuple of (is_correct, normalized_prediction)
     """
-    # Extract answer from solution
-    match = re.findall(answer_pattern, solution_str)
-    extracted_answer = match[-1] if match else "[INVALID]"
+    # Prefer the final LaTeX boxed answer, which is the format used by AIME prompts.
+    # Fall back to the legacy Minerva "Answer:" pattern for backward compatibility.
+    boxed_answer = last_boxed_only_string(solution_str)
+    if boxed_answer is not None:
+        extracted_answer = remove_boxed(boxed_answer)
+    else:
+        match = re.findall(answer_pattern, solution_str)
+        extracted_answer = match[-1] if match else "[INVALID]"
     pred = normalize_final_answer(extracted_answer)
 
     # Process ground truth
     if gt_need_extract:
-        gt = normalize_final_answer(remove_boxed(last_boxed_only_string(gt)))
+        boxed_gt = last_boxed_only_string(gt)
+        gt = normalize_final_answer(remove_boxed(boxed_gt) if boxed_gt is not None else gt)
     else:
         gt = normalize_final_answer(gt)
 

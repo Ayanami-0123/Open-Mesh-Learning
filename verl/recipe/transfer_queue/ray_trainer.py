@@ -1580,7 +1580,8 @@ class RayPPOTrainer:
                             token_level_rewards, kl_metrics = apply_kl_penalty(
                                 apply_kl_penalty_meta,
                                 kl_ctrl=self.kl_ctrl_in_reward,
-                                kl_penalty=self.config.algorithm.kl_penalty,
+                                kl_penalty=self.config.algorithm.get("divergence_type")
+                                or self.config.algorithm.get("kl_penalty", "kl"),
                             )
                             token_level_rewards_td = TensorDict(
                                 {"token_level_rewards": token_level_rewards}, batch_size=token_level_rewards.size(0)

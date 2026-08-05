@@ -62,6 +62,7 @@ algorithm:
   norm_adv_by_std_in_grpo: True
   use_kl_in_reward: False
   kl_penalty: kl # how to estimate kl divergence
+  divergence_type: null
   kl_ctrl:
     # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
     _target_: verl.trainer.config.KLControlConfig

@@ -342,7 +342,8 @@ class AlgoConfig(BaseConfig):
         adv_estimator (str): Advantage estimator type: "gae", "grpo", "reinforce_plus_plus", etc.
         norm_adv_by_std_in_grpo (bool): Whether to normalize advantages by std (specific to GRPO).
         use_kl_in_reward (bool): Whether to enable in-reward KL penalty.
-        kl_penalty (str): How to estimate KL divergence: "kl", "abs", "mse", "low_var_kl", or "full".
+        kl_penalty (str): Legacy divergence estimator: "kl", "js", "abs", "mse", "low_var_kl", or "full".
+        divergence_type (Optional[str]): Optional override for actor/reference reward penalties: "kl" or "js".
         kl_ctrl (KLControlConfig): KL control configuration.
         use_pf_ppo (bool): Whether to enable preference feedback PPO.
         pf_ppo (dict[str, Any]): Preference feedback PPO settings.
@@ -369,6 +370,7 @@ class AlgoConfig(BaseConfig):
     norm_adv_by_std_in_grpo: bool = True
     use_kl_in_reward: bool = False
     kl_penalty: str = "kl"
+    divergence_type: Optional[str] = None
     kl_ctrl: KLControlConfig = field(default_factory=KLControlConfig)
     use_pf_ppo: bool = False
     pf_ppo: dict[str, Any] = field(default_factory=dict)

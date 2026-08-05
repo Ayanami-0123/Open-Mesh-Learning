@@ -1460,6 +1460,15 @@ def kl_penalty_forward(logprob: torch.FloatTensor, ref_logprob: torch.FloatTenso
     if kl_penalty in ("kl", "k1"):
         return logprob - ref_logprob
 
+    if kl_penalty == "js":
+        ref_to_logprob = torch.clamp(ref_logprob - logprob, min=-20, max=20)
+        ratio = torch.exp(ref_to_logprob)
+        log_two = torch.log(torch.tensor(2.0, dtype=logprob.dtype, device=logprob.device))
+        logprob_to_mixture = log_two - torch.log1p(ratio)
+        ref_logprob_to_mixture = ref_to_logprob + logprob_to_mixture
+        js = 0.5 * (logprob_to_mixture + ratio * ref_logprob_to_mixture)
+        return torch.clamp(js, min=0.0)
+
     if kl_penalty == "abs":
         return (logprob - ref_logprob).abs()
 
@@ -1771,6 +1780,7 @@ def compute_uniform_group_kl_aux_loss(
     token_level_rewards: torch.Tensor,
     uids,
     temperature: float,
+    divergence_type: str = "kl",
     eps: float = 1e-8,
     sigma_min: float = 1.0,
 ) -> torch.Tensor:
@@ -1788,12 +1798,14 @@ def compute_uniform_group_kl_aux_loss(
     """
     if temperature <= 0:
         raise ValueError("uniform_group_kl_temperature must be > 0")
+    if divergence_type not in ("kl", "js"):
+        raise ValueError(f"uniform_group_divergence_type must be 'kl' or 'js', got {divergence_type!r}")
 
     # 1. 计算每个序列的 log 概率总和 (B,)
     seq_curr_logp = (log_prob * response_mask).sum(dim=-1)
     seq_ref_logp = (ref_log_prob * response_mask).sum(dim=-1)
     seq_logp = seq_curr_logp - seq_ref_logp
-    
+
     # 2. 判断每个序列是否正确 (B,)
     correct = (token_level_rewards.sum(dim=-1) > 0).to(dtype=log_prob.dtype)
 
@@ -1828,16 +1840,28 @@ def compute_uniform_group_kl_aux_loss(
 
     # 7. 动态构建目标均匀分布
     target_p = valid_mask / torch.clamp(group_valid_counts, min=1.0)
-    
+
     # 8. 在对数空间安全计算目标对数
     log_target = torch.where(target_p > 0.0, torch.log(target_p + eps), torch.zeros_like(target_p))
 
-    # 9. 计算 KL 散度
-    kl_per_element = target_p * (log_target - log_p)
-    kl_per_group = kl_per_element.sum(dim=-1)
+    # 9. 计算 KL/JS 散度
+    if divergence_type == "kl":
+        divergence_per_element = target_p * (log_target - log_p)
+        divergence_per_group = divergence_per_element.sum(dim=-1)
+    else:
+        p = log_p.exp()
+        mixture = 0.5 * (target_p + p)
+        log_mixture = torch.log(torch.clamp(mixture, min=eps))
+        target_term = torch.where(
+            target_p > 0.0,
+            target_p * (log_target - log_mixture),
+            torch.zeros_like(target_p),
+        )
+        policy_term = p * (log_p - log_mixture)
+        divergence_per_group = 0.5 * (target_term + policy_term).sum(dim=-1)
 
     # 10. 如果整组 4 个全部都全错，一锅端抹去
     group_mask = (group_valid_counts.squeeze(-1) > 0).to(dtype=log_prob.dtype)
-    final_kl = kl_per_group * group_mask
+    final_kl = divergence_per_group * group_mask
 
     return final_kl.sum()

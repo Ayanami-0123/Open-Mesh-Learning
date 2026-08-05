@@ -79,7 +79,9 @@ actor_rollout_ref:
     use_kl_loss: false
     use_torch_compile: true
     kl_loss_coef: 0.001
-    kl_loss_type: low_var_kl
+    kl_loss_type: kl
+    divergence_type: null
+    uniform_group_divergence_type: kl
     ppo_epochs: 1
     shuffle: false
     checkpoint:
@@ -496,6 +498,7 @@ algorithm:
   norm_adv_by_std_in_grpo: true
   use_kl_in_reward: false
   kl_penalty: kl
+  divergence_type: null
   kl_ctrl:
     _target_: verl.trainer.config.KLControlConfig
     type: fixed

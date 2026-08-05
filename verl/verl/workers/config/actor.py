@@ -75,14 +75,17 @@ class ActorConfig(BaseConfig):
         use_kl_loss (bool): Whether to use KL divergence loss.
         use_torch_compile (bool): Whether to use torch.compile for optimization.
         kl_loss_coef (float): KL divergence loss coefficient.
-        kl_loss_type (str): Type of KL loss to use.
+        kl_loss_type (str): Legacy type of KL loss to use.
+        divergence_type (Optional[str]): Optional override for actor/reference penalties: "kl" or "js".
+        uniform_group_divergence_type (str): Divergence to use for uniform group auxiliary loss.
         ppo_epochs (int): Number of PPO epochs per training step.
         shuffle (bool): Whether to shuffle data during training.
         checkpoint (CheckpointConfig): Configuration for checkpointing.
         optim (OptimizerConfig): Configuration for optimizer.
         use_fused_kernels (bool): Whether to use custom fused kernels (e.g., FlashAttention, fused MLP).
         compute_mei_metric (bool): If True, log MEI = ||sum_i v_i||^2 / sum_i ||v_i||^2 per prompt (needs logits).
-        uniform_group_kl_enable (bool): If True, add KL(uniform_4 || softmax(z/T)) over consecutive groups of 4 prompts (by uid order).
+        uniform_group_kl_enable (bool): If True, add KL(uniform_4 || softmax(z/T)) over consecutive groups
+            of 4 prompts (by uid order).
         uniform_group_kl_temperature (float): Temperature T for softmax over the four z_i values.
         uniform_group_kl_coef (float): Coefficient mu multiplying the auxiliary KL sum before adding to policy loss.
     """
@@ -113,7 +116,9 @@ class ActorConfig(BaseConfig):
     use_kl_loss: bool = False
     use_torch_compile: bool = True
     kl_loss_coef: float = 0.001
-    kl_loss_type: str = "low_var_kl"
+    kl_loss_type: str = "kl"
+    divergence_type: Optional[str] = None
+    uniform_group_divergence_type: str = "kl"
     ppo_epochs: int = 1
     shuffle: bool = False
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)

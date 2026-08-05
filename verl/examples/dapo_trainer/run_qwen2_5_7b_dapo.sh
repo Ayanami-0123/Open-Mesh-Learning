@@ -30,62 +30,63 @@ export TMP="$RUNTIME_TMPDIR"
 export TEMP="$RUNTIME_TMPDIR"
 mkdir -p "$TMPDIR" "$RAY_TMPDIR"
 
-# 1. 修正变量定义区（删除了错误的 cat 管道命令）
 PROFILE_STEPS="[2,4]"
 PROFILE_RANKS_ALL=False
 DISCRETE=True
 PROFILE_RANKS="[1,2]"
 
-# 2. 数据路径
-SAVE_PATH="${SAVE_PATH:-${PERSIST_ROOT}/profile_data}" # profiler 保存路径
-TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/WildSci_final_aligned.parquet}" # 训练数据路径
-TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/GPQA_diamond.parquet}" # 测试数据路径
+SAVE_PATH="${SAVE_PATH:-${PERSIST_ROOT}/profile_data}"
+TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/dapomath_7000_not_enhanced.parquet}"
+TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/AIME25_fixed.parquet}"
 TRAIN_FILES="${TRAIN_FILES:-$TRAIN_PATH}"
 VAL_FILES="${VAL_FILES:-$TEST_PATH}"
-MODEL_PATH="${MODEL_PATH:-/workspace/models/Qwen/Qwen3-4B}" # 模型路径
+MODEL_PATH="${MODEL_PATH:-/workspace/models/Qwen/Qwen2.5-7B-Instruct}"
 
 LEVEL="level1"
 CONTENTS="['npu','cpu']"
 ANALYSIS=True
 
-# 3. Batch Size 逻辑修正
-# 对于 GRPO，通常 train_batch_size 表示每一轮从数据集中取出的 Prompt 数量
-# 而 rollout.n (16) 是每个 Prompt 生成的数量
-# 关键!!! ppo_mini_batch_size 在 GRPO 模式下必须等于 train_batch_size
-train_batch_size="${TRAIN_BATCH_SIZE:-128}"
-ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-128}"
+train_batch_size="${TRAIN_BATCH_SIZE:-32}"
+ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-32}"
 ppo_micro_batch_size="${PPO_MICRO_BATCH_SIZE:-4}"
 ROLLOUT_N="${ROLLOUT_N:-4}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
+
+# DAPO loss-form settings: GRPO advantage + decoupled clipping + token-level PG loss.
+# Dynamic sampling/filter_groups is intentionally not enabled in this script.
 USE_KL_LOSS="${USE_KL_LOSS:-False}"
-KL_LOSS_COEF="${KL_LOSS_COEF:-0.01}"
-DIVERGENCE_TYPE="${DIVERGENCE_TYPE:-js}"
+KL_LOSS_COEF="${KL_LOSS_COEF:-0.0}"
+USE_KL_IN_REWARD="${USE_KL_IN_REWARD:-False}"
+KL_COEF="${KL_COEF:-0.0}"
+LOSS_MODE="${LOSS_MODE:-vanilla}"
+LOSS_AGG_MODE="${LOSS_AGG_MODE:-token-mean}"
+CLIP_RATIO_LOW="${CLIP_RATIO_LOW:-0.2}"
+CLIP_RATIO_HIGH="${CLIP_RATIO_HIGH:-0.28}"
+CLIP_RATIO_C="${CLIP_RATIO_C:-10.0}"
+REWARD_MANAGER="${REWARD_MANAGER:-naive}"
+
+DIVERGENCE_TYPE="${DIVERGENCE_TYPE:-kl}"
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
-MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-8192}"
+MAX_RESPONSE_LENGTH="${MAX_RESPONSE_LENGTH:-1024}"
 MAX_MODEL_LEN="${MAX_MODEL_LEN:-$((MAX_PROMPT_LENGTH + MAX_RESPONSE_LENGTH))}"
-PPO_MAX_TOKEN_LEN_PER_GPU="${PPO_MAX_TOKEN_LEN_PER_GPU:-10000}"
-LOG_PROB_MAX_TOKEN_LEN_PER_GPU="${LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-10000}"
+PPO_MAX_TOKEN_LEN_PER_GPU="${PPO_MAX_TOKEN_LEN_PER_GPU:-3000}"
+LOG_PROB_MAX_TOKEN_LEN_PER_GPU="${LOG_PROB_MAX_TOKEN_LEN_PER_GPU:-3000}"
 TOTAL_EPOCHS="${TOTAL_EPOCHS:-2}"
 TOTAL_TRAINING_STEPS="${TOTAL_TRAINING_STEPS:-}"
-SAVE_FREQ="${SAVE_FREQ:-20}"
-TEST_FREQ="${TEST_FREQ:-20}"
+SAVE_FREQ="${SAVE_FREQ:-100}"
+TEST_FREQ="${TEST_FREQ:-5}"
 VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-}"
 VAL_BEFORE_TRAIN="${VAL_BEFORE_TRAIN:-True}"
-# 验证阶段采样配置：用于计算 pass@k (verl 里叫 best@N)。
-# 默认贪心单样本只能得到 pass@1；这里打开采样、每个 prompt 采 VAL_N 个，
-# wandb 会自动出现 val-core/.../best@2,4,8,16/mean（即 pass@2/4/8/16）。
 VAL_N="${VAL_N:-4}"
 VAL_TEMPERATURE="${VAL_TEMPERATURE:-1.0}"
 VAL_TOP_P="${VAL_TOP_P:-0.95}"
 
-# 4. 设备映射（确保 NPU/GPU 数量匹配）
-N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-4}"
+N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-2}"
 
-# 5. 项目名称
-PROJECT_NAME="GPQA"
-TRAINER_NAME="Qwen3-4B-GRPO-Mutation-GPQA-Trial1"
-OUTPUT_PATH="${OUTPUT_PATH:-${PERSIST_ROOT}/verl_outputs/${TRAINER_NAME}}" # 断点保存路径
+PROJECT_NAME="${PROJECT_NAME:-DAPO}"
+TRAINER_NAME="Qwen2.5-7B-AIME25-DAPO"
+OUTPUT_PATH="${OUTPUT_PATH:-${PERSIST_ROOT}/verl_outputs/${TRAINER_NAME}}"
 HYDRA_OUTPUT_DIR="${HYDRA_OUTPUT_DIR:-${PERSIST_ROOT}/hydra_outputs/${TRAINER_NAME}}"
 mkdir -p "$SAVE_PATH" "$OUTPUT_PATH" "$HYDRA_OUTPUT_DIR"
 
@@ -94,6 +95,8 @@ cd "$PROJECT_ROOT/verl" || exit 1
 python -m verl.trainer.main_ppo \
     hydra.run.dir=$HYDRA_OUTPUT_DIR \
     algorithm.adv_estimator=grpo \
+    algorithm.use_kl_in_reward=$USE_KL_IN_REWARD \
+    algorithm.kl_ctrl.kl_coef=$KL_COEF \
     data.train_files="$TRAIN_FILES" \
     data.val_files="$VAL_FILES" \
     data.train_batch_size=$train_batch_size \
@@ -111,9 +114,14 @@ python -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.fsdp_config.mixed_precision.buffer=bfloat16 \
     algorithm.divergence_type=$DIVERGENCE_TYPE \
     actor_rollout_ref.actor.divergence_type=$DIVERGENCE_TYPE \
-    actor_rollout_ref.actor.uniform_group_kl_enable=True \
+    actor_rollout_ref.actor.policy_loss.loss_mode=$LOSS_MODE \
+    actor_rollout_ref.actor.clip_ratio_low=$CLIP_RATIO_LOW \
+    actor_rollout_ref.actor.clip_ratio_high=$CLIP_RATIO_HIGH \
+    actor_rollout_ref.actor.clip_ratio_c=$CLIP_RATIO_C \
+    actor_rollout_ref.actor.loss_agg_mode=$LOSS_AGG_MODE \
+    actor_rollout_ref.actor.uniform_group_kl_enable=False \
     actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
-    actor_rollout_ref.actor.uniform_group_kl_coef=0.00005 \
+    actor_rollout_ref.actor.uniform_group_kl_coef=0.0001 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.entropy_from_logits_with_chunking=True \
@@ -121,8 +129,8 @@ python -m verl.trainer.main_ppo \
     +actor_rollout_ref.actor.compute_mei_metric=True \
     actor_rollout_ref.actor.use_kl_loss=$USE_KL_LOSS \
     actor_rollout_ref.actor.kl_loss_coef=$KL_LOSS_COEF \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+    actor_rollout_ref.actor.fsdp_config.param_offload=True \
+    actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
     +actor_rollout_ref.rollout.max_model_len=$MAX_MODEL_LEN \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.data_parallel_size=1 \
@@ -133,7 +141,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.8 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.7 \
     actor_rollout_ref.rollout.n=$ROLLOUT_N \
     actor_rollout_ref.rollout.do_sample=True \
     actor_rollout_ref.rollout.temperature=$TEMPERATURE \
@@ -150,7 +158,7 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
     actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$LOG_PROB_MAX_TOKEN_LEN_PER_GPU \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=$ppo_micro_batch_size \
-    actor_rollout_ref.ref.fsdp_config.param_offload=False \
+    actor_rollout_ref.ref.fsdp_config.param_offload=True \
     trainer.logger='["console","wandb"]' \
     trainer.log_val_generations=10 \
     trainer.project_name=$PROJECT_NAME \
@@ -173,6 +181,7 @@ python -m verl.trainer.main_ppo \
     +ray_kwargs.ray_init.runtime_env.env_vars.TMP=$TMPDIR \
     +ray_kwargs.ray_init.runtime_env.env_vars.TEMP=$TMPDIR \
     reward_model.strategy=naive \
+    reward_model.reward_manager=$REWARD_MANAGER \
     +reward_model.num_examine=2 \
     global_profiler.tool=None \
     global_profiler.steps=$PROFILE_STEPS \

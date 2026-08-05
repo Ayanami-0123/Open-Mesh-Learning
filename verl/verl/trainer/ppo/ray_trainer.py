@@ -1033,19 +1033,19 @@ class RayPPOTrainer:
                 #    all_ids = gen_batch.batch['input_ids'][0]
                 #    # check1 打印原始 ID，看看到底有没有被 EOS 截断
                 #    print(f"DEBUG: Raw IDs (last 10): {all_ids[-10:].tolist()}")
-                #    
+                #
                 #    # check2 打印 Tokenizer 的特殊 ID
                 #    print(f"DEBUG: EOS ID: {self.tokenizer.eos_token_id}, PAD ID: {self.tokenizer.pad_token_id}")
-                #    
+                #
                 #    # check3 解码并查看结构
                 #    full_text = self.tokenizer.decode(all_ids)
                 #    print(f"DEBUG: Full Decoded Text:\n{full_text}")
-                #            
+                #
                 #    # check4 检查 response 长度
                 #    if 'responses' in gen_batch.batch:
                 #        resp_len = gen_batch.batch['responses'].shape[-1]
                 #        print(f"DEBUG: Response length according to batch: {resp_len}")
-                #            
+                #
                 #    print("="*50)
                 # ⬆️ -------------------- ⬆️
 
@@ -1069,19 +1069,19 @@ class RayPPOTrainer:
                         #    all_ids = gen_batch_output.batch['input_ids'][0]
                         #    # check1 打印原始 ID，看看到底有没有被 EOS 截断
                         #    print(f"DEBUG: Raw IDs (last 10): {all_ids[-10:].tolist()}")
-                        #    
-                            # check2 打印 Tokenizer 的特殊 ID
+                        #
+                        # check2 打印 Tokenizer 的特殊 ID
                         #    print(f"DEBUG: EOS ID: {self.tokenizer.eos_token_id}, PAD ID: {self.tokenizer.pad_token_id}")
-                        #    
+                        #
                         #    # check3 解码并查看结构
                         #    full_text = self.tokenizer.decode(all_ids)
                         #    print(f"DEBUG: Full Decoded Text:\n{full_text}")
-                        #    
+                        #
                         #    # check4 检查 response 长度
                         #    if 'responses' in gen_batch_output.batch:
                         #        resp_len = gen_batch_output.batch['responses'].shape[-1]
                         #        print(f"DEBUG: Response length according to batch: {resp_len}")
-                        #    
+                        #
                         #    print("="*50)
                         # ⬆️ -------------------- ⬆️
 
@@ -1208,7 +1208,10 @@ class RayPPOTrainer:
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             batch, kl_metrics = apply_kl_penalty(
-                                batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                                batch,
+                                kl_ctrl=self.kl_ctrl_in_reward,
+                                kl_penalty=self.config.algorithm.get("divergence_type")
+                                or self.config.algorithm.get("kl_penalty", "kl"),
                             )
                             metrics.update(kl_metrics)
                         else:

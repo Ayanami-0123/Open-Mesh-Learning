@@ -197,7 +197,10 @@ class RayEntropyTrainer(RayPPOTrainer):
                         # compute rewards. apply_kl_penalty if available
                         if self.config.algorithm.use_kl_in_reward:
                             new_batch, kl_metrics = apply_kl_penalty(
-                                new_batch, kl_ctrl=self.kl_ctrl_in_reward, kl_penalty=self.config.algorithm.kl_penalty
+                                new_batch,
+                                kl_ctrl=self.kl_ctrl_in_reward,
+                                kl_penalty=self.config.algorithm.get("divergence_type")
+                                or self.config.algorithm.get("kl_penalty", "kl"),
                             )
                             metrics.update(
                                 kl_metrics

@@ -84,8 +84,14 @@ use_torch_compile: true
 # KL loss coefficient when use_kl_loss is enabled. For GRPO
 kl_loss_coef: 0.001
 
-# Type of KL divergence loss. Options: "kl"(k1), "abs", "mse"(k2), "low_var_kl"(k3), "full"
-kl_loss_type: low_var_kl
+# Legacy KL loss estimator. Options: "kl"(k1), "abs", "mse"(k2), "low_var_kl"(k3), "full", "js"
+kl_loss_type: kl
+
+# Optional override for actor/reference penalties. If null, kl_loss_type is used.
+divergence_type: null
+
+# Divergence used by uniform group auxiliary loss. Options: "kl" or "js".
+uniform_group_divergence_type: kl
 
 # Number of PPO epochs per batch
 ppo_epochs: 1

@@ -9,7 +9,7 @@ def fix_my_data(file_path):
     answer_col = 'solution' if 'solution' in df.columns else 'answer'
 
     # 0. 补齐操作：
-    df['data_source'] = 'aime'
+    df['data_source'] = 'aime26'
     #df['ability'] = 'math'
 
     # 1. 构造模型需要的对话格式 (Role + Content)
@@ -42,7 +42,7 @@ def fix_my_data(file_path):
     print(f"File {file_path} is now FIXED!\n")
 
 # 执行修复
-fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME24_fixed.parquet")
-fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME25_fixed.parquet")
-fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME26_fixed.parquet")
-fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME24-26.parquet")
+fix_my_data("/data/home/huangqiyuan/Project1/data/AIME26_fixed.parquet")
+# fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME25_fixed.parquet")
+# fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME26_fixed.parquet")
+# fix_my_data("/data/home/huangqiyuan/mutant_grpo/data/AIME24-26.parquet")

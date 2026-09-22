@@ -1,6 +1,5 @@
 set -x
 
-export WANDB_API_KEY="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"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"

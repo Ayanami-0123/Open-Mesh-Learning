@@ -157,9 +157,10 @@ Update paths in the launch scripts if the data is stored in a different location
 | LiveCodeBench | 4096 | 4096 | \ |
 
 ### Ablation Experiments
-You can turn off `UNIFORM_GROUP_KL_ENABLE` and use training sets with Coach prompts to ablate the effectiveness of Strategy-balancing regularization.
+You can disable `UNIFORM_GROUP_KL_ENABLE` while using the training sets with Coach prompts to ablate the effect of Strategy-balancing Regularization.
 
-You can change `UNIFORM_GROUP_KL_GROUP_SIZE` to ablate the sensitivity to selected strategy capacity.
+You can vary `UNIFORM_GROUP_KL_GROUP_SIZE` to evaluate sensitivity to the number of strategies included in the balancing objective.
+
 
 ### Command example
 The main Qwen3-4B AIME26 experiment can be reproduced with:

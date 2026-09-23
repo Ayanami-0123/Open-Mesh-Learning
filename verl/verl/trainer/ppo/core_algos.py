@@ -1781,6 +1781,7 @@ def compute_uniform_group_kl_aux_loss(
     uids,
     temperature: float,
     divergence_type: str = "kl",
+    group_size: int = 4,
     eps: float = 1e-8,
     sigma_min: float = 1.0,
 ) -> torch.Tensor:
@@ -1800,6 +1801,9 @@ def compute_uniform_group_kl_aux_loss(
         raise ValueError("uniform_group_kl_temperature must be > 0")
     if divergence_type not in ("kl", "js"):
         raise ValueError(f"uniform_group_divergence_type must be 'kl' or 'js', got {divergence_type!r}")
+    group_size = int(group_size)
+    if group_size <= 0:
+        raise ValueError(f"uniform_group_kl_group_size must be > 0, got {group_size}")
 
     # 1. 计算每个序列的 log 概率总和 (B,)
     seq_curr_logp = (log_prob * response_mask).sum(dim=-1)
@@ -1809,59 +1813,75 @@ def compute_uniform_group_kl_aux_loss(
     # 2. 判断每个序列是否正确 (B,)
     correct = (token_level_rewards.sum(dim=-1) > 0).to(dtype=log_prob.dtype)
 
-    # 3. 核心优化：利用“每4个相邻样本是一组”的强假设，直接重塑矩阵
-    # 这样完全不需要中间的 for 循环、不创建任何临时 Tensor
+    def _compute_group_divergence(seq_logp_g: torch.Tensor, correct_g: torch.Tensor) -> torch.Tensor:
+        # 组内 z-score 标准化（带温度下限）。mean 在 softmax 下平移不变，detach 以免注入无意义梯度。
+        mu = seq_logp_g.mean(dim=-1, keepdim=True).detach()
+        z = (seq_logp_g - mu) / temperature
+        log_p = torch.nn.functional.log_softmax(z, dim=-1)
+
+        valid_mask = correct_g
+        group_valid_counts = valid_mask.sum(dim=-1, keepdim=True)
+        target_p = valid_mask / torch.clamp(group_valid_counts, min=1.0)
+        log_target = torch.where(target_p > 0.0, torch.log(target_p + eps), torch.zeros_like(target_p))
+
+        if divergence_type == "kl":
+            divergence_per_element = target_p * (log_target - log_p)
+            divergence_per_group = divergence_per_element.sum(dim=-1)
+        else:
+            p = log_p.exp()
+            mixture = 0.5 * (target_p + p)
+            log_mixture = torch.log(torch.clamp(mixture, min=eps))
+            target_term = torch.where(
+                target_p > 0.0,
+                target_p * (log_target - log_mixture),
+                torch.zeros_like(target_p),
+            )
+            policy_term = p * (log_p - log_mixture)
+            divergence_per_group = 0.5 * (target_term + policy_term).sum(dim=-1)
+
+        group_mask = (group_valid_counts.squeeze(-1) > 0).to(dtype=log_prob.dtype)
+        return (divergence_per_group * group_mask).sum()
+
     B = seq_logp.size(0)
-    n_groups = B // 4
-    if n_groups == 0:
+    if B == 0:
         return log_prob.sum() * 0.0
 
-    # 将数据裁剪并直接重塑为 (N, 4) 的组结构
-    seq_logp_g = seq_logp[: n_groups * 4].view(n_groups, 4)
-    correct_g = correct[: n_groups * 4].view(n_groups, 4)
+    # Prefer uid boundaries so callers may rebalance a random subset of methods from each prompt,
+    # e.g. ROLLOUT_N=4 with uniform_group_kl_group_size=3 randomly samples 3 of the 4 responses.
+    # Fall back to contiguous chunks when uid metadata is unavailable or malformed.
+    uid_values = None
+    if uids is not None:
+        if isinstance(uids, torch.Tensor):
+            uid_values = uids.detach().cpu().numpy()
+        else:
+            uid_values = np.asarray(uids)
+        if len(uid_values) != B:
+            uid_values = None
 
-    # 4. 组内 z-score 标准化（带温度下限）。
-    # mean 在 softmax 下平移不变，仅为可读性/数值习惯保留；detach 以免注入无意义梯度。
-    mu = seq_logp_g.mean(dim=-1, keepdim=True).detach()
-    # 总体方差 (ddof=0)。detach 后该"温度"在反向中视为常数。
-    # var = (seq_logp_g - mu).pow(2).mean(dim=-1, keepdim=True)
-    # std = torch.sqrt(var + eps).detach()
-    # clamp 不是防零除装饰：小方差区退化为固定温度 sigma_min，梯度才有界于 ~1/sigma_min。
-    # s_eff = torch.clamp(std, min=sigma_min)
+    if uid_values is not None:
+        losses = []
+        start = 0
+        while start < B:
+            end = start + 1
+            while end < B and uid_values[end] == uid_values[start]:
+                end += 1
+            group_count = end - start
+            take = min(group_size, group_count)
+            if take > 0:
+                if take < group_count:
+                    offsets = torch.randperm(group_count, device=seq_logp.device)[:take]
+                    idx = start + offsets
+                else:
+                    idx = torch.arange(start, end, device=seq_logp.device)
+                losses.append(_compute_group_divergence(seq_logp[idx].unsqueeze(0), correct[idx].unsqueeze(0)))
+            start = end
+        if not losses:
+            return log_prob.sum() * 0.0
+        return torch.stack(losses).sum()
 
-    # 5. 计算当前策略的 log_softmax (N, 4)
-    # 此时中间完全没有产生任何碎片计算图，PyTorch 会在底层将其作为一个连续大矩阵高效处理
-    z = (seq_logp_g - mu) / (temperature)
-    log_p = torch.nn.functional.log_softmax(z, dim=-1)
-
-    # 6. 识别合法样本：直接用 correct_g 矩阵作为 valid_mask
-    valid_mask = correct_g  # 形状: (n_groups, 4)
-    group_valid_counts = valid_mask.sum(dim=-1, keepdim=True)  # (n_groups, 1)
-
-    # 7. 动态构建目标均匀分布
-    target_p = valid_mask / torch.clamp(group_valid_counts, min=1.0)
-
-    # 8. 在对数空间安全计算目标对数
-    log_target = torch.where(target_p > 0.0, torch.log(target_p + eps), torch.zeros_like(target_p))
-
-    # 9. 计算 KL/JS 散度
-    if divergence_type == "kl":
-        divergence_per_element = target_p * (log_target - log_p)
-        divergence_per_group = divergence_per_element.sum(dim=-1)
-    else:
-        p = log_p.exp()
-        mixture = 0.5 * (target_p + p)
-        log_mixture = torch.log(torch.clamp(mixture, min=eps))
-        target_term = torch.where(
-            target_p > 0.0,
-            target_p * (log_target - log_mixture),
-            torch.zeros_like(target_p),
-        )
-        policy_term = p * (log_p - log_mixture)
-        divergence_per_group = 0.5 * (target_term + policy_term).sum(dim=-1)
-
-    # 10. 如果整组 4 个全部都全错，一锅端抹去
-    group_mask = (group_valid_counts.squeeze(-1) > 0).to(dtype=log_prob.dtype)
-    final_kl = divergence_per_group * group_mask
-
-    return final_kl.sum()
+    n_groups = B // group_size
+    if n_groups == 0:
+        return log_prob.sum() * 0.0
+    seq_logp_g = seq_logp[: n_groups * group_size].view(n_groups, group_size)
+    correct_g = correct[: n_groups * group_size].view(n_groups, group_size)
+    return _compute_group_divergence(seq_logp_g, correct_g)

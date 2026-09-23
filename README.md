@@ -15,7 +15,7 @@ The recommended setup uses `uv` so that dependency resolution and installation a
 ### 1. Create and activate an environment
 
 ```bash
-uv venv --python 3.10 .venv
+uv venv --python 3.12 .venv
 source .venv/bin/activate
 ```
 
@@ -59,35 +59,109 @@ python -c "import verl; print('verl import ok')"
 
 Additional accelerator-specific dependencies may be required depending on the target hardware, driver version, and rollout backend.
 
-## Data
+## Reproducibility Notes
 
-The main training and evaluation files are stored under `data/`. The expected files include:
-
-- `math_train_fixed.parquet`
-- `math_test_fixed.parquet`
-
-Update paths in the launch scripts if the data is stored in a different location on your system.
-
-## Running Experiments
-
-Example launch scripts are provided under `verl/examples/`:
+### Commands
+The three fundamental launch scripts are provided under `verl/examples/`:
 
 - `verl/examples/dapo_trainer/run_qwen2_5_7b_dapo.sh`
 - `verl/examples/gspo_trainer/run_qwen2_5_7b_gspo.sh`
 - `verl/examples/grpo_trainer/run_qwen2_5_7b_grpo.sh`
-- `verl/examples/grpo_trainer/run_qwen3_4b_grpo.sh`
 
-Before running an experiment, review the script and set local paths, cluster settings, logging configuration, and any required environment variables outside the repository.
+Before running an experiment, review the script and set local paths, cluster settings, logging configuration, and any required environment variables outside the repository. The general command template is provided below:
 
 ```bash
-bash verl/examples/grpo_trainer/run_qwen3_4b_grpo.sh
+MODEL_PATH=/path/to/model \
+TRAIN_PATH=data/<train_file>.parquet \
+TEST_PATH=data/<eval_file>.parquet \
+TEST_PATH_2=data/<optional_second_eval_file>.parquet \
+PROJECT_NAME=<project_name> \
+TRAINER_NAME=<run_name> \
+N_GPUS_PER_NODE=<num_gpus> \
+TOTAL_EPOCHS=<epochs> \
+MAX_RESPONSE_LENGTH=<max_response_length> \
+USE_KL_LOSS=<True_or_False> \
+DIVERGENCE_TYPE=<kl_or_js> \
+ROLLOUT_N=<num_rollouts_per_prompt> \
+VAL_N=<num_validation_samples> \
+UNIFORM_GROUP_KL_ENABLE=<True_or_False> \
+UNIFORM_GROUP_KL_GROUP_SIZE=<num_methods_to_rebalance> \
+bash verl/examples/<method>_trainer/<one_of_the_three_scripts>.sh
 ```
 
-## Reproducibility Notes
+The main variables are:
+
+| Variable | Meaning |
+| --- | --- |
+| `MODEL_PATH` | Local path to the base model checkpoint. |
+| `TRAIN_PATH` | Training dataset in parquet format. |
+| `TEST_PATH` | Primary evaluation dataset. |
+| `TEST_PATH_2` | Optional secondary evaluation dataset. |
+| `PROJECT_NAME` | Logger project name. |
+| `TRAINER_NAME` | Run name used for logs/checkpoints. |
+| `N_GPUS_PER_NODE` | Number of GPUs used on one node. |
+| `TOTAL_EPOCHS` | Number of training epochs. |
+| `TOTAL_TRAINING_STEPS` | Optional cap on training steps. |
+| `MAX_RESPONSE_LENGTH` | Token budget for each rollout response. |
+| `USE_KL_LOSS` | Whether to turn on actor KL loss; use `True` or `False`. |
+| `DIVERGENCE_TYPE` | Divergence type used by the actor/reference penalty; use `kl` or `js`. |
+| `ROLLOUT_N` | Number of rollout responses sampled per prompt during training. |
+| `VAL_N` | Number of sampled responses per validation prompt. |
+| `UNIFORM_GROUP_KL_ENABLE` | Whether to enable the uniform-group KL rebalancing auxiliary loss; use `True` or `False`. |
+| `UNIFORM_GROUP_KL_GROUP_SIZE` | Number of same-prompt methods/responses randomly sampled without replacement by uniform-group KL. The default `4` matches the original setting; set `3`, `2`, or `1` to rebalance a random subset of fewer methods from each prompt uid. |
+
+### Model
+The three models used in the experiments are:
+- `Qwen/Qwen3-4B`
+- `Qwen/Qwen2.5-7B-Instruct`
+- `unsloth/Phi-4-mini-reasoning`
+
+All three models can be downloaded on `modelscope`, using the command below:
+```bash
+modelscope download --model <model_family>/<model_name> --local_dir path/to/your/model/storage
+```
+
+### Data
+
+The main training and evaluation files are stored under `data/`. The expected files for different benchmarks include:
+
+### Benchmark name: MATH-500
+- Benchmark `MATH-500_fixed.parquet`
+- training set (No Coach prompt) `math_train_fixed.parquet`
+- training set (With Coach prompt) `math_final_aligned2.parquet`
+
+### Benchmark name: AIME25/26
+- Benchmark `AIME25_fixed.parquet` `AIME26_fixed.parquet`
+- training set (No Coach prompt) `dapomath_7000_not_enhanced.parquet`
+- training set (With Coach prompt) `dapomath_7000_final_aligned.parquet`
+
+### Benchmark name: GPQA
+- Benchmark `GPQA_diamond.parquet`
+- training set (No Coach prompt) `WildSci_not_enhanced.parquet`
+- training set (With Coach prompt) `WildSci_final_aligned_3.parquet`
+
+### Benchmark name: LiveCodeBench
+- Benchmark `livecodebench.parquet`
+- training set (No Coach prompt) `Skywork_not_enhanced.parquet`
+- training set (With Coach prompt) `Skywork_final_aligned2.parquet`
+
+Update paths in the launch scripts if the data is stored in a different location on your system.
+
+### Prompt Length
+| Benchmark | Phi-4-mini-reasoning | Qwen2.5-7B-Instruct | Qwen3-4B |
+| --- | --- | --- | --- |
+| AIME25 | 8192 | 8192 | 1024 |
+| AIME26 | 8192 | 8192 | 1024 |
+| GPQA | 4096 | 4096 | 1024 |
+| MATH-500 | 4096 | 4096 | 1024 |
+| LiveCodeBench | 4096 | 4096 | \ |
+
+### Reproducibility Disclaimer
 
 - Large generated outputs, checkpoints, local logs, and Hydra output directories are intentionally excluded from the repository.
-- API keys and service credentials should be provided through local environment variables or a private secrets manager, not committed to version control.
+- wandb API keys and other service credentials should be perpared by the users.
 - Exact hardware throughput and runtime may vary with GPU type, driver version, backend configuration, and cluster scheduling.
+- Due to the stochasticity of RL training and inference, rerunning an experiment may not reproduce the reported metric exactly. The provided scripts and configuration can be used reproduce the primary results reported.
 
 ## Anonymity
 

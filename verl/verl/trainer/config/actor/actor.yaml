@@ -96,10 +96,13 @@ uniform_group_divergence_type: kl
 # Number of PPO epochs per batch
 ppo_epochs: 1
 
-# If true, add KL(uniform over 4 || softmax(z/T)) on consecutive uid blocks of size 4 (requires uid + token_level_rewards; disable dynamic batch sizing).
+# If true, add KL(uniform || softmax(z/T)) on grouped responses from the same prompt uid (requires uid + token_level_rewards; disable dynamic batch sizing).
 uniform_group_kl_enable: false
 
-# Temperature T in softmax over the four prompt-level z_i values.
+# Number of randomly sampled methods/responses per prompt uid used by the rebalancing loss. Use 4 for the original setting, or 3/2/1 for fewer methods.
+uniform_group_kl_group_size: 4
+
+# Temperature T in softmax over the grouped prompt-level z_i values.
 uniform_group_kl_temperature: 1.0
 
 # Multiplier mu on the summed KL before adding to the policy loss.

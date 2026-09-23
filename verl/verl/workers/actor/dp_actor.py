@@ -711,15 +711,11 @@ class DataParallelPPOActor(BasePPOActor):
                                     "set actor.use_dynamic_bsz=false for this auxiliary loss."
                                 )
                                 _UNIFORM_KL_DYN_WARNED = True
-                        elif (
-                            "uid" not in model_inputs
-                            or "token_level_rewards" not in model_inputs
-                            or "ref_log_prob" not in model_inputs
-                        ):
+                        elif "token_level_rewards" not in model_inputs or "ref_log_prob" not in model_inputs:
                             if not _UNIFORM_KL_KEY_WARNED:
                                 logger.warning(
-                                    "uniform_group_kl skipped: batch needs non_tensor_batch['uid'] and "
-                                    "batch['token_level_rewards']."
+                                    "uniform_group_kl skipped: batch needs batch['token_level_rewards'] "
+                                    "and batch['ref_log_prob']."
                                 )
                                 _UNIFORM_KL_KEY_WARNED = True
                         else:
@@ -735,7 +731,7 @@ class DataParallelPPOActor(BasePPOActor):
                                 ref_log_prob=model_inputs["ref_log_prob"],
                                 response_mask=response_mask,
                                 token_level_rewards=model_inputs["token_level_rewards"],
-                                uids=model_inputs["uid"],
+                                uids=model_inputs.get("uid"),
                                 temperature=u_temp,
                                 divergence_type=divergence_type,
                                 group_size=u_group_size,

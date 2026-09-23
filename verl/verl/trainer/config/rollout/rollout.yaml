@@ -232,6 +232,22 @@ agent:
     # Class name of the custom async server class (e.g. AsyncvLLMServer)
     name: null
 
+# SGLang server mode HTTP client settings.
+server:
+
+  # Required when using verl.utils.omega_conf_to_dataclass to instantiate dataclass configs
+  _target_: verl.workers.config.ServerConfig
+
+  timeout: 60.0
+
+  max_attempts: 3
+
+  retry_delay: 2.0
+
+  max_connections: 1000
+
+  max_start_wait_time: 300.0
+
 # Specifies the tensor bucket size (in megabytes) for batch weight updates during rollout operations.
 # This parameter controls the maximum payload size for a single weight update request.
 # Reference: https://github.com/volcengine/verl/pull/2418

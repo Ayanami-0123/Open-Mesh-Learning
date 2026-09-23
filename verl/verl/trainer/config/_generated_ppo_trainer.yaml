@@ -73,6 +73,7 @@ actor_rollout_ref:
     ppo_epochs: 1
     shuffle: false
     uniform_group_kl_enable: false
+    uniform_group_kl_group_size: 4
     uniform_group_kl_temperature: 1.0
     uniform_group_kl_coef: 0.0
     checkpoint:

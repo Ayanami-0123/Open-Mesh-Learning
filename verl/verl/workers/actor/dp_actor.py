@@ -724,6 +724,7 @@ class DataParallelPPOActor(BasePPOActor):
                                 _UNIFORM_KL_KEY_WARNED = True
                         else:
                             u_temp = float(self.config.get("uniform_group_kl_temperature", 1.0))
+                            u_group_size = int(self.config.get("uniform_group_kl_group_size", 4))
                             divergence_type = (
                                 self.config.get("uniform_group_divergence_type")
                                 or self.config.get("divergence_type")
@@ -737,10 +738,12 @@ class DataParallelPPOActor(BasePPOActor):
                                 uids=model_inputs["uid"],
                                 temperature=u_temp,
                                 divergence_type=divergence_type,
+                                group_size=u_group_size,
                             )
                             policy_loss = policy_loss + coef_u * u_loss
                             micro_batch_metrics[f"actor/uniform_group_{divergence_type}"] = u_loss.detach().item()
                             micro_batch_metrics["actor/uniform_group_kl_coef"] = coef_u
+                            micro_batch_metrics["actor/uniform_group_kl_group_size"] = u_group_size
 
                     if self.config.use_dynamic_bsz:
                         # relative to the dynamic bsz

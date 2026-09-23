@@ -57,8 +57,10 @@ ANALYSIS=True
 train_batch_size="${TRAIN_BATCH_SIZE:-36}"
 ppo_mini_batch_size=36
 ppo_micro_batch_size="${PPO_MICRO_BATCH_SIZE:-4}"
-ROLLOUT_N=4
+ROLLOUT_N="${ROLLOUT_N:-4}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
+UNIFORM_GROUP_KL_ENABLE="${UNIFORM_GROUP_KL_ENABLE:-False}"
+UNIFORM_GROUP_KL_GROUP_SIZE="${UNIFORM_GROUP_KL_GROUP_SIZE:-4}"
 
 LOSS_MODE="${LOSS_MODE:-gspo}"
 LOSS_AGG_MODE="${LOSS_AGG_MODE:-seq-mean-token-mean}"
@@ -122,8 +124,9 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.loss_agg_mode=$LOSS_AGG_MODE \
     actor_rollout_ref.actor.clip_ratio_low=$CLIP_RATIO_LOW \
     actor_rollout_ref.actor.clip_ratio_high=$CLIP_RATIO_HIGH \
-    actor_rollout_ref.actor.uniform_group_kl_enable=False \
+    actor_rollout_ref.actor.uniform_group_kl_enable=$UNIFORM_GROUP_KL_ENABLE \
     actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
+    actor_rollout_ref.actor.uniform_group_kl_group_size=$UNIFORM_GROUP_KL_GROUP_SIZE \
     actor_rollout_ref.actor.uniform_group_kl_coef=0.0001 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \

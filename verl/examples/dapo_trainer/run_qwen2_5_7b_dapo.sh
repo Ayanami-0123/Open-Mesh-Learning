@@ -58,6 +58,8 @@ ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-36}"
 ppo_micro_batch_size="${PPO_MICRO_BATCH_SIZE:-4}"
 ROLLOUT_N="${ROLLOUT_N:-4}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
+UNIFORM_GROUP_KL_ENABLE="${UNIFORM_GROUP_KL_ENABLE:-False}"
+UNIFORM_GROUP_KL_GROUP_SIZE="${UNIFORM_GROUP_KL_GROUP_SIZE:-4}"
 
 # DAPO loss-form settings: GRPO advantage + decoupled clipping + token-level PG loss.
 # Dynamic sampling/filter_groups is intentionally not enabled in this script.
@@ -126,8 +128,9 @@ python -m verl.trainer.main_ppo \
     actor_rollout_ref.actor.clip_ratio_high=$CLIP_RATIO_HIGH \
     actor_rollout_ref.actor.clip_ratio_c=$CLIP_RATIO_C \
     actor_rollout_ref.actor.loss_agg_mode=$LOSS_AGG_MODE \
-    actor_rollout_ref.actor.uniform_group_kl_enable=False \
+    actor_rollout_ref.actor.uniform_group_kl_enable=$UNIFORM_GROUP_KL_ENABLE \
     actor_rollout_ref.actor.uniform_group_kl_temperature=1.0 \
+    actor_rollout_ref.actor.uniform_group_kl_group_size=$UNIFORM_GROUP_KL_GROUP_SIZE \
     actor_rollout_ref.actor.uniform_group_kl_coef=0.0001 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.use_remove_padding=True \

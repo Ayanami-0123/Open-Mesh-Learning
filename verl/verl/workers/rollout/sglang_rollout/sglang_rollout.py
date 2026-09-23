@@ -1612,7 +1612,14 @@ class ServerAdapter(BaseRollout):
         )
         host = f"[{server_address}]" if is_valid_ipv6_address(server_address) else server_address
         self._engine = AsyncHttpServerAdapter(
-            model_path=self.model_config.local_path, host=host, port=server_port, launch_server=False
+            model_path=self.model_config.local_path,
+            host=host,
+            port=server_port,
+            timeout=self.config.server["timeout"],
+            max_attempts=self.config.server["max_attempts"],
+            retry_delay=self.config.server["retry_delay"],
+            max_connections=self.config.server["max_connections"],
+            launch_server=False,
         )
 
     async def resume(self, tags: list[str]):

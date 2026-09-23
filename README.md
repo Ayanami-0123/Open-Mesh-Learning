@@ -5,7 +5,7 @@ This repository contains the code and data artifacts for an anonymous paper subm
 ## Repository Structure
 
 - `verl/`: Training and evaluation code based on the verl framework, including the experiment launch scripts used in the submission.
-- `data/`: Dataset files used by the experiments. Python preprocessing scripts have been removed from the public artifact to avoid exposing private credentials.
+- `data/`: Dataset files used by the experiments. Python preprocessing scripts have been removed from the public artifact to avoid exposing private information, the system prompt used to generate coach prompts are provided in Appendix D.2 of the essay.
 - `LICENSE`: License information for the released code.
 
 ## Environment Setup
@@ -156,12 +156,35 @@ Update paths in the launch scripts if the data is stored in a different location
 | MATH-500 | 4096 | 4096 | 1024 |
 | LiveCodeBench | 4096 | 4096 | \ |
 
+### Ablation Experiments
+You can turn off `UNIFORM_GROUP_KL_ENABLE` and use training sets with Coach prompts to ablate the effectiveness of Strategy-balancing regularization.
+
+You can change `UNIFORM_GROUP_KL_GROUP_SIZE` to ablate the sensitivity to selected strategy capacity.
+
+### Command example
+The main Qwen3-4B AIME26 experiment can be reproduced with:
+
+```bash
+MODEL_PATH=/path/to/Qwen3-4B \
+TRAIN_PATH=data/dapomath_7000_final_aligned.parquet \
+TEST_PATH=data/AIME26_fixed.parquet \
+N_GPUS_PER_NODE=... \
+TOTAL_EPOCHS=... \
+MAX_RESPONSE_LENGTH=8192 \
+ROLLOUT_N=4 \
+VAL_N=4 \
+UNIFORM_GROUP_KL_ENABLE=True \
+UNIFORM_GROUP_KL_GROUP_SIZE=4 \
+bash verl/examples/grpo_trainer/run_qwen2_5_7b_grpo.sh
+```
+`ROLLOUT_N` is set 4 here as we split the 16 rollouts on 4 prompts with identical query but different system prompt.
+
 ### Reproducibility Disclaimer
 
 - Large generated outputs, checkpoints, local logs, and Hydra output directories are intentionally excluded from the repository.
-- wandb API keys and other service credentials should be perpared by the users.
+- wandb API keys and other service credentials should be prepared by the users.
 - Exact hardware throughput and runtime may vary with GPU type, driver version, backend configuration, and cluster scheduling.
-- Due to the stochasticity of RL training and inference, rerunning an experiment may not reproduce the reported metric exactly. The provided scripts and configuration can be used reproduce the primary results reported.
+- Due to the stochasticity of RL training and inference, rerunning an experiment may not reproduce the reported metric exactly. The provided scripts and configuration can be used to reproduce the primary results reported.
 
 ## Anonymity
 

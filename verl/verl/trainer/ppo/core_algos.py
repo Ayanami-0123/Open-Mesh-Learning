@@ -1802,8 +1802,11 @@ def compute_uniform_group_kl_aux_loss(
     if divergence_type not in ("kl", "js"):
         raise ValueError(f"uniform_group_divergence_type must be 'kl' or 'js', got {divergence_type!r}")
     group_size = int(group_size)
-    if group_size <= 0:
-        raise ValueError(f"uniform_group_kl_group_size must be > 0, got {group_size}")
+    historical_group_size = 4
+    if group_size <= 0 or group_size > historical_group_size:
+        raise ValueError(
+            f"uniform_group_kl_group_size must be in [1, {historical_group_size}], got {group_size}"
+        )
 
     # 1. 计算每个序列的 log 概率总和 (B,)
     seq_curr_logp = (log_prob * response_mask).sum(dim=-1)
@@ -1843,45 +1846,18 @@ def compute_uniform_group_kl_aux_loss(
         return (divergence_per_group * group_mask).sum()
 
     B = seq_logp.size(0)
-    if B == 0:
-        return log_prob.sum() * 0.0
-
-    # Prefer uid boundaries so callers may rebalance a random subset of methods from each prompt,
-    # e.g. ROLLOUT_N=4 with uniform_group_kl_group_size=3 randomly samples 3 of the 4 responses.
-    # Fall back to contiguous chunks when uid metadata is unavailable or malformed.
-    uid_values = None
-    if uids is not None:
-        if isinstance(uids, torch.Tensor):
-            uid_values = uids.detach().cpu().numpy()
-        else:
-            uid_values = np.asarray(uids)
-        if len(uid_values) != B:
-            uid_values = None
-
-    if uid_values is not None:
-        losses = []
-        start = 0
-        while start < B:
-            end = start + 1
-            while end < B and uid_values[end] == uid_values[start]:
-                end += 1
-            group_count = end - start
-            take = min(group_size, group_count)
-            if take > 0:
-                if take < group_count:
-                    offsets = torch.randperm(group_count, device=seq_logp.device)[:take]
-                    idx = start + offsets
-                else:
-                    idx = torch.arange(start, end, device=seq_logp.device)
-                losses.append(_compute_group_divergence(seq_logp[idx].unsqueeze(0), correct[idx].unsqueeze(0)))
-            start = end
-        if not losses:
-            return log_prob.sum() * 0.0
-        return torch.stack(losses).sum()
-
-    n_groups = B // group_size
+    n_groups = B // historical_group_size
     if n_groups == 0:
         return log_prob.sum() * 0.0
-    seq_logp_g = seq_logp[: n_groups * group_size].view(n_groups, group_size)
-    correct_g = correct[: n_groups * group_size].view(n_groups, group_size)
+
+    # Match the historical grouping contract: every 4 adjacent entries form one strategy group.
+    # uniform_group_kl_group_size controls how many entries are randomly sampled from each 4-way group.
+    seq_logp_g = seq_logp[: n_groups * historical_group_size].view(n_groups, historical_group_size)
+    correct_g = correct[: n_groups * historical_group_size].view(n_groups, historical_group_size)
+
+    if group_size < historical_group_size:
+        sample_idx = torch.rand(n_groups, historical_group_size, device=seq_logp.device).argsort(dim=-1)[:, :group_size]
+        seq_logp_g = torch.gather(seq_logp_g, dim=-1, index=sample_idx)
+        correct_g = torch.gather(correct_g, dim=-1, index=sample_idx)
+
     return _compute_group_divergence(seq_logp_g, correct_g)

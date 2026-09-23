@@ -108,7 +108,7 @@ The main variables are:
 | `ROLLOUT_N` | Number of rollout responses sampled per prompt during training. |
 | `VAL_N` | Number of sampled responses per validation prompt. |
 | `UNIFORM_GROUP_KL_ENABLE` | Whether to enable the uniform-group KL rebalancing auxiliary loss; use `True` or `False`. |
-| `UNIFORM_GROUP_KL_GROUP_SIZE` | Number of same-prompt methods/responses randomly sampled without replacement by uniform-group KL. The default `4` matches the original setting; set `3`, `2`, or `1` to rebalance a random subset of fewer methods from each prompt uid. |
+| `UNIFORM_GROUP_KL_GROUP_SIZE` | Number of entries randomly sampled without replacement from each historical 4-way adjacent group for uniform-group KL. The default `4` matches the original setting; set `3`, `2`, or `1` to rebalance a random subset of fewer methods. |
 
 ### Model
 The three models used in the experiments are:

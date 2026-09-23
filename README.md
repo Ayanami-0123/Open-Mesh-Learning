@@ -72,9 +72,9 @@ Before running an experiment, review the script and set local paths, cluster set
 
 ```bash
 MODEL_PATH=/path/to/model \
-TRAIN_PATH=data/<train_file>.parquet \
-TEST_PATH=data/<eval_file>.parquet \
-TEST_PATH_2=data/<optional_second_eval_file>.parquet \
+TRAIN_PATH="$(pwd)/data/<train_file>.parquet" \
+TEST_PATH="$(pwd)/data/<eval_file>.parquet" \
+TEST_PATH_2="$(pwd)/data/<optional_second_eval_file>.parquet" \
 PROJECT_NAME=<project_name> \
 TRAINER_NAME=<run_name> \
 N_GPUS_PER_NODE=<num_gpus> \
@@ -167,8 +167,8 @@ The main Qwen3-4B AIME26 experiment can be reproduced with:
 
 ```bash
 MODEL_PATH=/path/to/Qwen3-4B \
-TRAIN_PATH=data/dapomath_7000_final_aligned.parquet \
-TEST_PATH=data/AIME26_fixed.parquet \
+TRAIN_PATH="$(pwd)/data/dapomath_7000_final_aligned.parquet" \
+TEST_PATH="$(pwd)/data/AIME26_fixed.parquet" \
 N_GPUS_PER_NODE=... \
 TOTAL_EPOCHS=... \
 MAX_RESPONSE_LENGTH=8192 \

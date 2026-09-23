@@ -1,5 +1,8 @@
+#!/bin/bash
+set -euo pipefail
+
+: "${WANDB_API_KEY:?Set WANDB_API_KEY in the environment before running this script}"
 set -x
-export WANDB_API_KEY="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"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
@@ -12,8 +15,8 @@ export TMP="$RUNTIME_TMPDIR"
 export TEMP="$RUNTIME_TMPDIR"
 mkdir -p "$TMPDIR"
 
-# Ray 的 session / object spilling 写到空闲的 /data2，避免写满 /data
-export RAY_TMPDIR="${RAY_TMPDIR:-/data2/share/huangqiyuan/ray_tmp}"
+# Ray 的 session / object spilling 目录可按机器情况覆盖。
+export RAY_TMPDIR="${RAY_TMPDIR:-${PROJECT_ROOT}/ray_tmp}"
 mkdir -p "$RAY_TMPDIR"
 
 # 1. Profiler 变量

@@ -49,20 +49,31 @@ async def run_unvicorn(app: FastAPI, server_args, server_address, max_retries=5)
     server_port, server_task = None, None
 
     for i in range(max_retries):
+        sock = None
         try:
             server_port, sock = get_free_port(server_address)
             app.server_args = server_args
             config = uvicorn.Config(app, host=server_address, port=server_port, log_level="warning")
             server = uvicorn.Server(config)
-            server.should_exit = True
-            await server.serve()
-            server_task = asyncio.create_task(server.main_loop())
+            server_task = asyncio.create_task(server.serve(sockets=[sock]))
+            for _ in range(100):
+                if server.started:
+                    break
+                if server_task.done():
+                    raise RuntimeError("uvicorn server task exited during startup")
+                await asyncio.sleep(0.1)
+            else:
+                raise TimeoutError("uvicorn server did not start within 10 seconds")
             break
-        except (OSError, SystemExit) as e:
+        except (OSError, SystemExit, RuntimeError, TimeoutError) as e:
+            if sock is not None:
+                sock.close()
+            if server_task is not None:
+                server_task.cancel()
             logger.error(f"Failed to start HTTP server on port {server_port} at try {i}, error: {e}")
     else:
         logger.error(f"Failed to start HTTP server after {max_retries} retries, exiting...")
         os._exit(-1)
 
-    logger.info(f"HTTP server started on port {server_port}")
+    logger.info(f"HTTP server started on {server_address}:{server_port}")
     return server_port, server_task

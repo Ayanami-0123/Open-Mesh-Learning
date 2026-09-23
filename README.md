@@ -10,15 +10,54 @@ This repository contains the code and data artifacts for an anonymous paper subm
 
 ## Environment Setup
 
-Create a Python environment and install the project dependencies from the `verl/` directory:
+The recommended setup uses `uv` so that dependency resolution and installation are reproducible across machines. Run the commands from the repository root.
+
+### 1. Create and activate an environment
 
 ```bash
-cd verl
-pip install -e .
-pip install -r requirements.txt
+uv venv --python 3.10 .venv
+source .venv/bin/activate
 ```
 
-Additional accelerator-specific dependencies may be required depending on the target hardware and backend.
+### 2. Install the training package
+
+```bash
+uv pip install --upgrade pip setuptools wheel
+uv pip install -e ./verl
+uv pip install -r verl/requirements.txt
+```
+
+### 3. Install backend-specific requirements
+
+Install only the backend needed for your machine. For CUDA-based experiments:
+
+```bash
+uv pip install -r verl/requirements-cuda.txt
+uv pip install -r verl/requirements_sglang.txt
+```
+
+For NPU-based experiments:
+
+```bash
+uv pip install -r verl/requirements-npu.txt
+```
+
+### 4. Fetch data files tracked with Git LFS
+
+Some dataset files are stored with Git LFS. After cloning the repository, fetch them with:
+
+```bash
+git lfs install
+git lfs pull --include="data/*.parquet"
+```
+
+### 5. Sanity check the installation
+
+```bash
+python -c "import verl; print('verl import ok')"
+```
+
+Additional accelerator-specific dependencies may be required depending on the target hardware, driver version, and rollout backend.
 
 ## Data
 

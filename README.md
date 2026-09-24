@@ -147,14 +147,14 @@ The main training and evaluation files are stored under `data/`. The expected fi
 
 Update paths in the launch scripts if the data is stored in a different location on your system.
 
-### Prompt Length
+### Maximum Generation Length
 | Benchmark | Phi-4-mini-reasoning | Qwen2.5-7B-Instruct | Qwen3-4B |
 | --- | --- | --- | --- |
-| AIME25 | 8192 | 8192 | 1024 |
-| AIME26 | 8192 | 8192 | 1024 |
-| GPQA | 4096 | 4096 | 1024 |
-| MATH-500 | 4096 | 4096 | 1024 |
-| LiveCodeBench | 4096 | 4096 | \ |
+| AIME25 | 8192 | 1024 | 8192 |
+| AIME26 | 8192 | 1024 | 8192 |
+| GPQA | 4096 | 1024 | 4096 |
+| MATH-500 | 4096 | 1024 | 4096 |
+| LiveCodeBench | 4096 | — | 4096 |
 
 ### Ablation Experiments
 You can disable `UNIFORM_GROUP_KL_ENABLE` while using the training sets with Coach prompts to ablate the effect of Strategy-balancing Regularization.

@@ -975,7 +975,7 @@ def compute_policy_loss_vanilla(
 
     if config is not None and config.get("use_kl_loss", False):
         kl_loss_coef = config.get("kl_loss_coef", 0.0)
-        # 将 KL 散度作为 Loss 惩罚项
+        # Add KL divergence as a loss penalty.
         pg_loss = pg_loss + kl_loss_coef * ppo_kl
 
     pg_metrics = {
@@ -1786,16 +1786,18 @@ def compute_uniform_group_kl_aux_loss(
     sigma_min: float = 1.0,
 ) -> torch.Tensor:
     """
-    极致显存优化版：利用数据连续性，通过纯向量化(Vectorization)干掉循环。
-    完美规避计算图堆积，将显存开销降到最低。
+    Memory-optimized implementation: uses data contiguity and pure vectorization to eliminate loops.
+    This avoids computation-graph buildup and minimizes memory usage.
 
-    组内对 seq_logp 做 z-score 标准化后再进 softmax，等价于"每组自适应温度 = 组内 std"，
-    把 logits 锁在 ±sqrt(n) 量级、与 response 长度解耦，从而压住爆炸的 loss 数值。
-    关键：sigma_min 是温度下限（不是防零除的 epsilon）。纯 z-score 在 std->0 时会因
-    1/std 放大噪声方向而导致梯度发散；clamp(std, min=sigma_min) 在小方差区退化为固定温度
-    sigma_min，使梯度有界于 ~1/sigma_min。因此 sigma_min 应取"典型 seq_logp 组内 std"
-    的量级(O(1)~O(10))，而非 1e-8。mean/std 均 detach，使反向得到干净的 (1/s_eff)*(p-t)
-    梯度，而非额外的 1/std^2 项。
+    Within each group, seq_logp is z-score normalized before softmax, which is equivalent to
+    "per-group adaptive temperature = group std". This keeps logits around the +/-sqrt(n) scale
+    and decouples them from response length, suppressing exploding loss values.
+    Key point: sigma_min is a lower bound on temperature, not an epsilon for avoiding division by zero.
+    Pure z-score normalization can amplify noise directions by 1/std when std -> 0, causing gradient
+    divergence. clamp(std, min=sigma_min) falls back to a fixed temperature in low-variance regions,
+    bounding gradients by about 1/sigma_min. Therefore sigma_min should be on the scale of a typical
+    within-group seq_logp std (O(1) to O(10)), not 1e-8. mean/std are both detached so the backward
+    pass gets a clean (1/s_eff) * (p - t) gradient instead of an extra 1/std^2 term.
     """
     if temperature <= 0:
         raise ValueError("uniform_group_kl_temperature must be > 0")
@@ -1808,16 +1810,16 @@ def compute_uniform_group_kl_aux_loss(
             f"uniform_group_kl_group_size must be in [1, {historical_group_size}], got {group_size}"
         )
 
-    # 1. 计算每个序列的 log 概率总和 (B,)
+    # 1. Compute the summed log probability for each sequence (B,)
     seq_curr_logp = (log_prob * response_mask).sum(dim=-1)
     seq_ref_logp = (ref_log_prob * response_mask).sum(dim=-1)
     seq_logp = seq_curr_logp - seq_ref_logp
 
-    # 2. 判断每个序列是否正确 (B,)
+    # 2. Determine whether each sequence is correct (B,)
     correct = (token_level_rewards.sum(dim=-1) > 0).to(dtype=log_prob.dtype)
 
     def _compute_group_divergence(seq_logp_g: torch.Tensor, correct_g: torch.Tensor) -> torch.Tensor:
-        # 组内 z-score 标准化（带温度下限）。mean 在 softmax 下平移不变，detach 以免注入无意义梯度。
+        # Within-group z-score normalization with a temperature floor. Mean shifts do not affect softmax; detach to avoid injecting meaningless gradients.
         mu = seq_logp_g.mean(dim=-1, keepdim=True).detach()
         z = (seq_logp_g - mu) / temperature
         log_p = torch.nn.functional.log_softmax(z, dim=-1)

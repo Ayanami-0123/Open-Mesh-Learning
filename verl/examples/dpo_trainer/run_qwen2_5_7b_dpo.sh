@@ -15,49 +15,49 @@ export TMP="$RUNTIME_TMPDIR"
 export TEMP="$RUNTIME_TMPDIR"
 mkdir -p "$TMPDIR"
 
-# Ray 的 session / object spilling 目录可按机器情况覆盖。
-export RAY_TMPDIR="${RAY_TMPDIR:-${PROJECT_ROOT}/ray_tmp}"
+# Store Ray sessions and object spilling under the runtime temp directory.
+export RAY_TMPDIR="${RAY_TMPDIR:-${RUNTIME_TMPDIR}/ray}"
 mkdir -p "$RAY_TMPDIR"
 
-# 1. Profiler 变量
+# 1. Profiler variables
 PROFILE_STEPS="[2,4]"
 PROFILE_RANKS_ALL=False
 DISCRETE=True
 PROFILE_RANKS="[1,2]"
 
-# 2. 数据路径
-SAVE_PATH="${SAVE_PATH:-${PROJECT_ROOT}/profile_data}" # profiler 保存路径
-TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/math_final_aligned.parquet}" # 训练数据路径
-TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/MATH-500_fixed.parquet}" # 测试数据路径
+# 2. Data paths
+SAVE_PATH="${SAVE_PATH:-${PROJECT_ROOT}/profile_data}" # profiler save path
+TRAIN_PATH="${TRAIN_PATH:-${PROJECT_ROOT}/data/math_final_aligned.parquet}" # training data path
+TEST_PATH="${TEST_PATH:-${PROJECT_ROOT}/data/MATH-500_fixed.parquet}" # test data path
 TRAIN_FILES="${TRAIN_FILES:-$TRAIN_PATH}"
 VAL_FILES="${VAL_FILES:-$TEST_PATH}"
-MODEL_PATH="${MODEL_PATH:-/workspace/Qwen2.5-7B}" # 模型路径
+MODEL_PATH="${MODEL_PATH:-/workspace/Qwen2.5-7B}" # model path
 
 LEVEL="level1"
 CONTENTS="['npu','cpu']"
 ANALYSIS=True
 
-# 3. Batch Size 逻辑
-# 对于 Online DPO，train_batch_size 表示每一轮从数据集中取出的 Prompt 数量；
-# rollout.n 是每个 Prompt 生成的样本数（在线构造 chosen / rejected 配对，必须 >= 2）。
-# ppo_mini_batch_size 用于 DPO 更新阶段的分批。
+# 3. Batch size logic
+# For Online DPO, train_batch_size is the number of prompts sampled from the dataset each round.
+# rollout.n is the number of samples generated per prompt (used to build chosen/rejected pairs online, must be >= 2).
+# ppo_mini_batch_size controls batching during the DPO update phase.
 train_batch_size="${TRAIN_BATCH_SIZE:-8}"
 ppo_mini_batch_size="${PPO_MINI_BATCH_SIZE:-$train_batch_size}"
 ppo_micro_batch_size="${PPO_MICRO_BATCH_SIZE:-4}"
 ROLLOUT_N="${ROLLOUT_N:-4}"
 TEMPERATURE="${TEMPERATURE:-1.0}"
 
-# DPO 专属超参
+# DPO-specific hyperparameters
 DPO_BETA="${DPO_BETA:-0.1}"
 DPO_LOSS_TYPE="${DPO_LOSS_TYPE:-sigmoid}"
-REF_UPDATE_FREQ="${REF_UPDATE_FREQ:-1}"   # 参考模型周期性更新频率（Online DPO）
+REF_UPDATE_FREQ="${REF_UPDATE_FREQ:-1}"   # periodic reference-model update frequency (Online DPO)
 
-# group_kl（uniform group KL 辅助损失）接口
+# group_kl (uniform group KL auxiliary loss) interface
 UNIFORM_GROUP_KL_ENABLE="${UNIFORM_GROUP_KL_ENABLE:-True}"
 UNIFORM_GROUP_KL_TEMPERATURE="${UNIFORM_GROUP_KL_TEMPERATURE:-1.0}"
 UNIFORM_GROUP_KL_COEF="${UNIFORM_GROUP_KL_COEF:-0.001}"
 
-# mei 指标接口
+# MEI metric interface
 COMPUTE_MEI_METRIC="${COMPUTE_MEI_METRIC:-True}"
 
 MAX_PROMPT_LENGTH="${MAX_PROMPT_LENGTH:-1024}"
@@ -73,21 +73,21 @@ VAL_BATCH_SIZE="${VAL_BATCH_SIZE:-}"
 VAL_MAX_SAMPLES="${VAL_MAX_SAMPLES:-}"
 VAL_BEFORE_TRAIN="${VAL_BEFORE_TRAIN:-True}"
 
-# 4. 设备映射（确保 NPU/GPU 数量匹配）
+# 4. Device mapping (ensure the NPU/GPU count matches)
 N_GPUS_PER_NODE="${N_GPUS_PER_NODE:-2}"
 
-# 5. 项目名称
+# 5. Project name
 PROJECT_NAME="verl_m_dpo_math"
 TRAINER_NAME="${TRAINER_NAME:-qwen2_5_7b_dapomath_m_dpo_sglang_t${TEMPERATURE}_beta${DPO_BETA}}"
-OUTPUT_PATH="${OUTPUT_PATH:-${PROJECT_ROOT}/verl_outputs/${TRAINER_NAME}}" # 断点保存路径
+OUTPUT_PATH="${OUTPUT_PATH:-${PROJECT_ROOT}/verl_outputs/${TRAINER_NAME}}" # checkpoint save path
 HYDRA_OUTPUT_DIR="${HYDRA_OUTPUT_DIR:-${PROJECT_ROOT}/hydra_outputs/${TRAINER_NAME}}"
 mkdir -p "$SAVE_PATH" "$OUTPUT_PATH" "$HYDRA_OUTPUT_DIR"
 
 cd "$PROJECT_ROOT/verl" || exit 1
 
-# 入口：recipe.spin.main_spin（verl 中的 Online DPO 实现）
-# 配置默认为 recipe/spin/config/spin_trainer.yaml，它 defaults: - ppo_trainer，
-# 因此 actor 的 uniform_group_kl_* / compute_mei_metric 接口可照常传入。
+# Entry point: recipe.spin.main_spin (the Online DPO implementation in verl).
+# The default config is recipe/spin/config/spin_trainer.yaml, which includes defaults: - ppo_trainer.
+# Therefore the actor uniform_group_kl_* and compute_mei_metric interfaces can be passed as usual.
 python -m recipe.spin.main_spin \
     hydra.run.dir=$HYDRA_OUTPUT_DIR \
     algorithm.adv_estimator=null \

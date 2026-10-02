@@ -4,11 +4,11 @@
 
 ### Understanding and Preventing Catastrophic Strategy Collapse in RLVR
 
-**Preserve reasoning strategies. Sustain learning. Anticipate collapse.**
+**Preserve reasoning strategies. Sustain learning.**
 
 Code and data for *All Work and No Play Makes Jack a Dull Boy: Understanding and Preventing Catastrophic Strategy Collapse in RLVR*.
 
-[Theory](#why-rlvr-collapses) · [Method](#mesh-learning-expose-and-preserve) · [Results](#results-stability-and-stronger-reasoning) · [Reproduce](#reproduction-guide)
+[Highlights](#highlights) · [Results](#results) · **[Reproduction Guide](#reproduction-guide)**
 
 </div>
 
@@ -16,107 +16,31 @@ Code and data for *All Work and No Play Makes Jack a Dull Boy: Understanding and
   <img src="assets/abstract.png" alt="Baseline RLVR loses reasoning strategies and collapses; Mesh Learning rebalances strategies and sustains AIME26 accuracy across Qwen and Phi models." width="100%">
 </p>
 
-<p align="center"><em>Baseline RLVR progressively loses viable strategies. Mesh Learning preserves multiple reasoning approaches and sustains accuracy in the reported experiments.</em></p>
+<p align="center"><em>Preserving multiple reasoning strategies prevents late-stage collapse in the reported experiments.</em></p>
 
-| Qwen family | Phi family | Larger inference budgets |
-| :---: | :---: | :---: |
-| **Up to +13.4 pp** Mean@4 | **Up to +11.5 pp** Mean@4 | **Up to +32.6 pp** Pass@128 |
-| AIME26 · Qwen3-4B | GPQA-Diamond · Phi-4-mini-reasoning | AIME26 · Qwen3-4B |
+## Highlights
 
-Gains are absolute percentage points over the strongest standard RLVR baseline in each reported setting. Mean@4 and Pass@128 measure different aspects of performance.
+- **A theory of collapse.** Under the paper's assumptions, GRPO, DAPO, and GSPO concentrate strategy mass, while nontrivial accuracy requires a minimum strategy capacity. This conflict explains catastrophic collapse; fixed KL/JS penalties cannot universally prevent concentration.
+- **A lightweight warning signal.** The Mirrored Entanglement Index (**MEI**) tracks strategy alignment from rollout logits and provides early warning before the observed accuracy cliff, without auxiliary training.
+- **A practical solution.** Mesh Learning combines **Coach Prompting** to expose diverse strategies with **Strategy-Balancing Regularization** to preserve their relative learning progress. **No Coach LLM is required at inference.**
 
-> **Our central finding:** successful reasoning requires sufficient strategy capacity, while standard RLVR optimization tends to concentrate that capacity. Preserving strategies is a principle for stable and effective RLVR.
-
-## Why RLVR Collapses
-
-Why can a model improve for many training steps and then abruptly lose its reasoning ability? Our theory connects **trajectory-level update interactions**, **strategy competition**, and **the information capacity required for accuracy**.
-
-### From trajectories to strategies
-
-We define strategies through optimization behavior. Trajectories belong together when they are positively coupled and have identical neighborhoods under a coupling-profile similarity criterion. Their coupling is measured by the inner product of their Fisher scores:
-
-$$
-U_i = \nabla_\theta \log \pi_\theta(\tau_i \mid Q),
-\qquad K_{ij} = U_i^\top U_j.
-$$
-
-An update that reinforces one trajectory can reinforce or suppress another, depending on this coupling. The definition is grounded in policy dynamics; empirical analysis connects these groups to human-recognizable solution methods.
-
-### Three theoretical results, one collapse mechanism
-
-| Result | What the paper establishes | Why it matters |
-| --- | --- | --- |
-| **1 · Strategy concentration** | Under the stated optimization and scale assumptions, GRPO, DAPO, and GSPO concentrate almost all strategy mass onto one strategy with high probability within a finite validity horizon. | Different RLVR recipes share a tendency to contract effective strategy capacity. |
-| **2 · Strategy capacity lower bound** | Within the analyzed regime, usable strategy capacity obeys $\lvert\widehat{S}_{\epsilon,k}\rvert = \Omega_\rho(m_\epsilon N P_{\mathrm{acc},k})$. | Maintaining nontrivial accuracy requires sufficient usable strategy capacity. |
-| **3 · Limits of divergence penalties** | For either direction of KL and for JS, a sufficiently large reward gap relative to a fixed penalty strength can make the optimal strategy distribution arbitrarily concentrated. | Fixed divergence penalties cannot universally guarantee strategy preservation. |
-
-**The conflict explains the accuracy cliff:** optimization contracts the available strategies, while accurate reasoning requires a minimum capacity. Once that capacity becomes insufficient, performance cannot be sustained in the analyzed regime.
-
-The theorems are conditional: the concentration result assumes vanilla gradient descent, step-wise old-policy refresh, nontrivial accuracy, and specified learning-rate, clipping, and trajectory-length scales. It does not assert that every practical RLVR run must collapse.
-
-### MEI: an online warning signal
-
-The **Mirrored Entanglement Index (MEI)** measures alignment among trajectory logit gradients $v_i = \nabla_z \log \pi(\tau_i \mid Q)$:
-
-$$
-\mathrm{MEI} =
-\frac{\left\lVert\sum_{i=1}^{G} v_i\right\rVert_2^2}
-{\sum_{i=1}^{G}\lVert v_i\rVert_2^2}.
-$$
-
-Weakly coupled trajectories have a baseline near 1; increasing alignment raises MEI. Derived from rollout logits, the monitor requires no auxiliary training and avoids explicitly tracking parameter-space gradients. In the reported experiments, MEI crosses a calibrated **mean + $3\sigma$** threshold before the eventual accuracy cliff.
-
-The paper calibrates **1.013** on pre-RLVR Qwen models across three datasets. New models and tasks should be calibrated against their own non-collapsed reference regime.
-
-## Mesh Learning: Expose and Preserve
-
-Mesh Learning combines two complementary components on top of GRPO:
-
-| Component | Mechanism | Purpose |
-| --- | --- | --- |
-| **Coach Prompting (CP)** | An offline Coach LLM generates four distinct strategy prefixes per query. The policy assesses each suggestion and explores alternatives; prefixes exclude calculations, intermediate solutions, and final answers. | Expose multiple candidate reasoning strategies during training. |
-| **Strategy-Balancing Regularization** | Balance strategy growth relative to a fixed pre-RLVR reference policy. | Prevent a fast-growing strategy from overwhelming the others while allowing joint improvement. |
-
-For strategy scores $z$ and reference scores $z^{\mathrm{ref}}$, the paper defines:
-
-$$
-\mathcal{L}_{S} = D_{\mathrm{KL}}\!\left(U_m\,\middle\|\,\operatorname{softmax}(z-z^{\mathrm{ref}})\right),
-\qquad
-\mathcal{L} = \mathcal{L}_{\mathrm{RLVR}} + \mu\mathcal{L}_{S}.
-$$
-
-Each strategy score averages the log-probabilities of its correct trajectories. Comparing against the reference balances **relative learning progress**; adding the same improvement to every strategy leaves the regularizer unchanged.
-
-**No Coach LLM is needed at inference.** The policy proposes its own candidate strategy and applies the verification procedure. Coach-provided tokens are masked from the training loss.
-
-## Results: Stability and Stronger Reasoning
+## Results
 
 <p align="center">
-  <img src="assets/Fig6_accuracy_mei.png" alt="Accuracy and MEI throughout training on AIME25, AIME26, GPQA, and MATH-500. Mesh Learning retains accuracy with low MEI; several baselines exceed the warning threshold and collapse." width="100%">
+  <img src="assets/Fig6_accuracy_mei.png" alt="Accuracy and MEI during training on AIME25, AIME26, GPQA, and MATH-500. Mesh Learning sustains accuracy with low MEI while several baselines collapse." width="100%">
 </p>
 
-<p align="center"><em>Top: reasoning accuracy. Bottom: MEI. Dashed lines mark the calibrated warning threshold; crosses mark undefined MEI. Mesh Learning sustains accuracy and maintains low MEI across the displayed tasks.</em></p>
-
-### Main reasoning benchmarks
-
-With four strategies, Mesh Learning achieves the best result across all eight Qwen model–benchmark settings in the main comparison.
+<p align="center"><em>Top: accuracy. Bottom: MEI. Mesh Learning sustains accuracy and keeps MEI low across the displayed tasks.</em></p>
 
 | Model | AIME26 | AIME25 | MATH-500 | GPQA-Diamond |
 | --- | ---: | ---: | ---: | ---: |
-| Qwen2.5-7B-Instruct · strongest standard baseline | 10.0 | 13.3 | 71.8 | 34.3 |
-| **Qwen2.5-7B-Instruct · Mesh Learning** | **13.3 (+3.3)** | **16.7 (+3.4)** | **73.4 (+1.6)** | **36.7 (+2.4)** |
-| Qwen3-4B · strongest standard baseline | 43.3 | 43.3 | 84.3 | 45.8 |
-| **Qwen3-4B · Mesh Learning** | **56.7 (+13.4)** | **48.3 (+5.0)** | **86.8 (+2.5)** | **47.9 (+2.1)** |
-| Phi-4-mini-reasoning · strongest standard baseline | 25.0 | 24.1 | 79.9 | 23.0 |
-| **Phi-4-mini-reasoning · Mesh Learning** | **33.3 (+8.3)** | **30.8 (+6.7)** | **83.2 (+3.3)** | **34.5 (+11.5)** |
+| Qwen2.5-7B-Instruct | **13.3 (+3.3)** | **16.7 (+3.4)** | **73.4 (+1.6)** | **36.7 (+2.4)** |
+| Qwen3-4B | **56.7 (+13.4)** | **48.3 (+5.0)** | **86.8 (+2.5)** | **47.9 (+2.1)** |
+| Phi-4-mini-reasoning | **33.3 (+8.3)** | **30.8 (+6.7)** | **83.2 (+3.3)** | **34.5 (+11.5)** |
 
-Values are **Mean@4 accuracy (%)**; parentheses show absolute gains in percentage points. The strongest baseline is selected separately for each cell: GRPO, DAPO, GSPO, GRPO+KL, and GRPO+JS for Qwen, and GRPO/DAPO for Phi. Results come from Tables 1 and 2 in the paper.
+**Mean@4 accuracy (%)** with four strategies; parentheses show percentage-point gains over the strongest standard baseline in each setting (Tables 1–2). Qwen comparisons include GRPO, DAPO, GSPO, GRPO+KL, and GRPO+JS; Phi comparisons include GRPO and DAPO.
 
-### Larger inference budgets and coding
-
-- **A stronger reasoning frontier:** at Pass@128, gains reach **+32.6 pp on AIME26** and **+28.8 pp on AIME25** for Qwen3-4B; Qwen2.5-7B-Instruct gains **+6.9 pp** and **+7.3 pp**, respectively.
-- **Transfer to coding:** on LiveCodeBench v6, Mesh Learning reaches **65.3%** for Qwen3-4B and **36.3%** for Phi-4-mini-reasoning, improving over DAPO by **4.1 pp** and **3.6 pp** (Mean@4).
-- **Preservation drives the gains:** controlled ablations give the same Coach prefixes to CP variants. CP alone brings little or no improvement, while combining CP with Strategy-Balancing Regularization consistently performs better.
+Mesh Learning wins all **eight Qwen model–benchmark settings**, improves Qwen3-4B **Pass@128 by up to 32.6 pp**, and transfers to **LiveCodeBench v6** with **65.3%** on Qwen3-4B and **36.3%** on Phi (+4.1/+3.6 pp over DAPO). Controlled ablations show that strategy preservation, rather than Coach prefixes alone, drives the gains.
 
 ---
 

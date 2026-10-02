@@ -1,192 +1,267 @@
-# Anonymous Code Release
+<div align="center">
 
-This repository contains the code and data artifacts for an anonymous paper submission. The repository is organized to support reproducibility while avoiding author-identifying information.
+# Mesh Learning
 
-## Repository Structure
+### Understanding and Preventing Catastrophic Strategy Collapse in RLVR
 
-- `verl/`: Training and evaluation code based on the verl framework, including the experiment launch scripts used in the submission.
-- `data/`: Dataset files used by the experiments. Python preprocessing scripts have been removed from the public artifact to avoid exposing private information, the system prompt used to generate coach prompts are provided in Appendix D.2 of the essay.
-- `LICENSE`: License information for the released code.
+**Preserve reasoning strategies. Sustain learning. Anticipate collapse.**
 
-## Environment Setup
+Code and data for *All Work and No Play Makes Jack a Dull Boy: Understanding and Preventing Catastrophic Strategy Collapse in RLVR*.
 
-The recommended setup uses `uv` so that dependency resolution and installation are reproducible across machines. Run the commands from the repository root.
+[Theory](#why-rlvr-collapses) · [Method](#mesh-learning-expose-and-preserve) · [Results](#results-stability-and-stronger-reasoning) · [Reproduce](#reproduction-guide)
 
-### 1. Create and activate an environment
+</div>
+
+<p align="center">
+  <img src="assets/abstract.png" alt="Baseline RLVR loses reasoning strategies and collapses; Mesh Learning rebalances strategies and sustains AIME26 accuracy across Qwen and Phi models." width="100%">
+</p>
+
+<p align="center"><em>Baseline RLVR progressively loses viable strategies. Mesh Learning preserves multiple reasoning approaches and sustains accuracy in the reported experiments.</em></p>
+
+| Qwen family | Phi family | Larger inference budgets |
+| :---: | :---: | :---: |
+| **Up to +13.4 pp** Mean@4 | **Up to +11.5 pp** Mean@4 | **Up to +32.6 pp** Pass@128 |
+| AIME26 · Qwen3-4B | GPQA-Diamond · Phi-4-mini-reasoning | AIME26 · Qwen3-4B |
+
+Gains are absolute percentage points over the strongest standard RLVR baseline in each reported setting. Mean@4 and Pass@128 measure different aspects of performance.
+
+> **Our central finding:** successful reasoning requires sufficient strategy capacity, while standard RLVR optimization tends to concentrate that capacity. Preserving strategies is a principle for stable and effective RLVR.
+
+## Why RLVR Collapses
+
+Why can a model improve for many training steps and then abruptly lose its reasoning ability? Our theory connects **trajectory-level update interactions**, **strategy competition**, and **the information capacity required for accuracy**.
+
+### From trajectories to strategies
+
+We define strategies through optimization behavior. Trajectories belong together when they are positively coupled and have identical neighborhoods under a coupling-profile similarity criterion. Their coupling is measured by the inner product of their Fisher scores:
+
+$$
+U_i = \nabla_\theta \log \pi_\theta(\tau_i \mid Q),
+\qquad K_{ij} = U_i^\top U_j.
+$$
+
+An update that reinforces one trajectory can reinforce or suppress another, depending on this coupling. The definition is grounded in policy dynamics; empirical analysis connects these groups to human-recognizable solution methods.
+
+### Three theoretical results, one collapse mechanism
+
+| Result | What the paper establishes | Why it matters |
+| --- | --- | --- |
+| **1 · Strategy concentration** | Under the stated optimization and scale assumptions, GRPO, DAPO, and GSPO concentrate almost all strategy mass onto one strategy with high probability within a finite validity horizon. | Different RLVR recipes share a tendency to contract effective strategy capacity. |
+| **2 · Strategy capacity lower bound** | Within the analyzed regime, usable strategy capacity obeys $\lvert\widehat{S}_{\epsilon,k}\rvert = \Omega_\rho(m_\epsilon N P_{\mathrm{acc},k})$. | Maintaining nontrivial accuracy requires sufficient usable strategy capacity. |
+| **3 · Limits of divergence penalties** | For either direction of KL and for JS, a sufficiently large reward gap relative to a fixed penalty strength can make the optimal strategy distribution arbitrarily concentrated. | Fixed divergence penalties cannot universally guarantee strategy preservation. |
+
+**The conflict explains the accuracy cliff:** optimization contracts the available strategies, while accurate reasoning requires a minimum capacity. Once that capacity becomes insufficient, performance cannot be sustained in the analyzed regime.
+
+The theorems are conditional: the concentration result assumes vanilla gradient descent, step-wise old-policy refresh, nontrivial accuracy, and specified learning-rate, clipping, and trajectory-length scales. It does not assert that every practical RLVR run must collapse.
+
+### MEI: an online warning signal
+
+The **Mirrored Entanglement Index (MEI)** measures alignment among trajectory logit gradients $v_i = \nabla_z \log \pi(\tau_i \mid Q)$:
+
+$$
+\mathrm{MEI} =
+\frac{\left\lVert\sum_{i=1}^{G} v_i\right\rVert_2^2}
+{\sum_{i=1}^{G}\lVert v_i\rVert_2^2}.
+$$
+
+Weakly coupled trajectories have a baseline near 1; increasing alignment raises MEI. Derived from rollout logits, the monitor requires no auxiliary training and avoids explicitly tracking parameter-space gradients. In the reported experiments, MEI crosses a calibrated **mean + $3\sigma$** threshold before the eventual accuracy cliff.
+
+The paper calibrates **1.013** on pre-RLVR Qwen models across three datasets. New models and tasks should be calibrated against their own non-collapsed reference regime.
+
+## Mesh Learning: Expose and Preserve
+
+Mesh Learning combines two complementary components on top of GRPO:
+
+| Component | Mechanism | Purpose |
+| --- | --- | --- |
+| **Coach Prompting (CP)** | An offline Coach LLM generates four distinct strategy prefixes per query. The policy assesses each suggestion and explores alternatives; prefixes exclude calculations, intermediate solutions, and final answers. | Expose multiple candidate reasoning strategies during training. |
+| **Strategy-Balancing Regularization** | Balance strategy growth relative to a fixed pre-RLVR reference policy. | Prevent a fast-growing strategy from overwhelming the others while allowing joint improvement. |
+
+For strategy scores $z$ and reference scores $z^{\mathrm{ref}}$, the paper defines:
+
+$$
+\mathcal{L}_{S} = D_{\mathrm{KL}}\!\left(U_m\,\middle\|\,\operatorname{softmax}(z-z^{\mathrm{ref}})\right),
+\qquad
+\mathcal{L} = \mathcal{L}_{\mathrm{RLVR}} + \mu\mathcal{L}_{S}.
+$$
+
+Each strategy score averages the log-probabilities of its correct trajectories. Comparing against the reference balances **relative learning progress**; adding the same improvement to every strategy leaves the regularizer unchanged.
+
+**No Coach LLM is needed at inference.** The policy proposes its own candidate strategy and applies the verification procedure. Coach-provided tokens are masked from the training loss.
+
+## Results: Stability and Stronger Reasoning
+
+<p align="center">
+  <img src="assets/Fig6_accuracy_mei.png" alt="Accuracy and MEI throughout training on AIME25, AIME26, GPQA, and MATH-500. Mesh Learning retains accuracy with low MEI; several baselines exceed the warning threshold and collapse." width="100%">
+</p>
+
+<p align="center"><em>Top: reasoning accuracy. Bottom: MEI. Dashed lines mark the calibrated warning threshold; crosses mark undefined MEI. Mesh Learning sustains accuracy and maintains low MEI across the displayed tasks.</em></p>
+
+### Main reasoning benchmarks
+
+With four strategies, Mesh Learning achieves the best result across all eight Qwen model–benchmark settings in the main comparison.
+
+| Model | AIME26 | AIME25 | MATH-500 | GPQA-Diamond |
+| --- | ---: | ---: | ---: | ---: |
+| Qwen2.5-7B-Instruct · strongest standard baseline | 10.0 | 13.3 | 71.8 | 34.3 |
+| **Qwen2.5-7B-Instruct · Mesh Learning** | **13.3 (+3.3)** | **16.7 (+3.4)** | **73.4 (+1.6)** | **36.7 (+2.4)** |
+| Qwen3-4B · strongest standard baseline | 43.3 | 43.3 | 84.3 | 45.8 |
+| **Qwen3-4B · Mesh Learning** | **56.7 (+13.4)** | **48.3 (+5.0)** | **86.8 (+2.5)** | **47.9 (+2.1)** |
+| Phi-4-mini-reasoning · strongest standard baseline | 25.0 | 24.1 | 79.9 | 23.0 |
+| **Phi-4-mini-reasoning · Mesh Learning** | **33.3 (+8.3)** | **30.8 (+6.7)** | **83.2 (+3.3)** | **34.5 (+11.5)** |
+
+Values are **Mean@4 accuracy (%)**; parentheses show absolute gains in percentage points. The strongest baseline is selected separately for each cell: GRPO, DAPO, GSPO, GRPO+KL, and GRPO+JS for Qwen, and GRPO/DAPO for Phi. Results come from Tables 1 and 2 in the paper.
+
+### Larger inference budgets and coding
+
+- **A stronger reasoning frontier:** at Pass@128, gains reach **+32.6 pp on AIME26** and **+28.8 pp on AIME25** for Qwen3-4B; Qwen2.5-7B-Instruct gains **+6.9 pp** and **+7.3 pp**, respectively.
+- **Transfer to coding:** on LiveCodeBench v6, Mesh Learning reaches **65.3%** for Qwen3-4B and **36.3%** for Phi-4-mini-reasoning, improving over DAPO by **4.1 pp** and **3.6 pp** (Mean@4).
+- **Preservation drives the gains:** controlled ablations give the same Coach prefixes to CP variants. CP alone brings little or no improvement, while combining CP with Strategy-Balancing Regularization consistently performs better.
+
+---
+
+## Reproduction Guide
+
+Run commands from the repository root. The supplied launchers use **CUDA, FSDP, and SGLang**; choose GPU counts and memory settings for your hardware.
+
+### 1. Install the environment
+
+Install `uv` first, then create the environment:
 
 ```bash
 uv venv --python 3.12 .venv
 source .venv/bin/activate
-```
 
-### 2. Install the training package
-
-```bash
 uv pip install --upgrade pip setuptools wheel
 uv pip install -e ./verl
 uv pip install -r verl/requirements.txt
-```
-
-### 3. Install backend-specific requirements
-
-Install only the backend needed for your machine. For CUDA-based experiments:
-
-```bash
 uv pip install -r verl/requirements-cuda.txt
 uv pip install -r verl/requirements_sglang.txt
+
+python -c "import verl; print('verl import ok')"
 ```
 
-For NPU-based experiments:
+Match PyTorch, FlashAttention, and the rollout backend to your CUDA and driver versions. The repository also contains `verl/requirements-npu.txt` for NPU setups, but the launchers below explicitly set `trainer.device=cuda` and require adaptation for NPU execution.
 
-```bash
-uv pip install -r verl/requirements-npu.txt
-```
+### 2. Prepare models and datasets
 
-### 4. Fetch data files tracked with Git LFS
+Experiments use **Qwen/Qwen3-4B**, **Qwen/Qwen2.5-7B-Instruct**, and **unsloth/Phi-4-mini-reasoning**. Download the corresponding checkpoint and set `MODEL_PATH` to its local directory.
 
-Some dataset files are stored with Git LFS. After cloning the repository, fetch them with:
+**Dataset release:** training and evaluation artifacts will be published on Hugging Face. The dataset link will be added here when available. Place the downloaded files under `data/`, or set the dataset paths explicitly.
+
+| Benchmark | Evaluation file(s) | Standard training file | Coach-augmented training file |
+| --- | --- | --- | --- |
+| AIME25 / AIME26 | `AIME25_fixed.parquet`, `AIME26_fixed.parquet` | `dapomath_7000_not_enhanced.parquet` | `dapomath_7000_final_aligned.parquet` |
+| MATH-500 | `MATH-500_fixed.parquet` | `math_train_fixed.parquet` | `math_final_aligned2.parquet` |
+| GPQA-Diamond | `GPQA_diamond.parquet` | `WildSci_not_enhanced.parquet` | `WildSci_final_aligned_3.parquet` |
+| LiveCodeBench v6 | `livecodebench.parquet` | `Skywork_not_enhanced.parquet` | `Skywork_final_aligned2.parquet` |
+
+Coach-augmented datasets contain the prepared strategy prefixes. If using files tracked with Git LFS in this repository, fetch the actual data before training:
 
 ```bash
 git lfs install
 git lfs pull --include="data/*.parquet"
 ```
 
-### 5. Sanity check the installation
+### 3. Launch Mesh Learning
 
-```bash
-python -c "import verl; print('verl import ok')"
-```
-
-Additional accelerator-specific dependencies may be required depending on the target hardware, driver version, and rollout backend.
-
-## Reproducibility Notes
-
-### Commands
-The three fundamental launch scripts are provided under `verl/examples/`:
-
-- `verl/examples/dapo_trainer/run_qwen2_5_7b_dapo.sh`
-- `verl/examples/gspo_trainer/run_qwen2_5_7b_gspo.sh`
-- `verl/examples/grpo_trainer/run_qwen2_5_7b_grpo.sh`
-
-Before running an experiment, review the script and set local paths, cluster settings, logging configuration, and any required environment variables outside the repository. The general command template is provided below:
-
-```bash
-MODEL_PATH=/path/to/model \
-TRAIN_PATH="$(pwd)/data/<train_file>.parquet" \
-TEST_PATH="$(pwd)/data/<eval_file>.parquet" \
-TEST_PATH_2="$(pwd)/data/<optional_second_eval_file>.parquet" \
-PROJECT_NAME=<project_name> \
-TRAINER_NAME=<run_name> \
-N_GPUS_PER_NODE=<num_gpus> \
-TOTAL_EPOCHS=<epochs> \
-MAX_RESPONSE_LENGTH=<max_response_length> \
-USE_KL_LOSS=<True_or_False> \
-DIVERGENCE_TYPE=<kl_or_js> \
-ROLLOUT_N=<num_rollouts_per_prompt> \
-VAL_N=<num_validation_samples> \
-UNIFORM_GROUP_KL_ENABLE=<True_or_False> \
-UNIFORM_GROUP_KL_GROUP_SIZE=<num_methods_to_rebalance> \
-bash verl/examples/<method>_trainer/<one_of_the_three_scripts>.sh
-```
-
-The main variables are:
-
-| Variable | Meaning |
-| --- | --- |
-| `MODEL_PATH` | Local path to the base model checkpoint. |
-| `TRAIN_PATH` | Training dataset in parquet format. |
-| `TEST_PATH` | Primary evaluation dataset. |
-| `TEST_PATH_2` | Optional secondary evaluation dataset. |
-| `PROJECT_NAME` | Logger project name. |
-| `TRAINER_NAME` | Run name used for logs/checkpoints. |
-| `N_GPUS_PER_NODE` | Number of GPUs used on one node. |
-| `TOTAL_EPOCHS` | Number of training epochs. |
-| `TOTAL_TRAINING_STEPS` | Optional cap on training steps. |
-| `MAX_RESPONSE_LENGTH` | Token budget for each rollout response. |
-| `USE_KL_LOSS` | Whether to turn on actor KL loss; use `True` or `False`. |
-| `DIVERGENCE_TYPE` | Divergence type used by the actor/reference penalty; use `kl` or `js`. |
-| `ROLLOUT_N` | Number of rollout responses sampled per prompt during training. |
-| `VAL_N` | Number of sampled responses per validation prompt. |
-| `UNIFORM_GROUP_KL_ENABLE` | Whether to enable the uniform-group KL rebalancing auxiliary loss; use `True` or `False`. |
-| `UNIFORM_GROUP_KL_GROUP_SIZE` | Number of entries randomly sampled without replacement from each historical 4-way adjacent group for uniform-group KL. The default `4` matches the original setting; set `3`, `2`, or `1` to rebalance a random subset of fewer methods. |
-
-### Model
-The three models used in the experiments are:
-- `Qwen/Qwen3-4B`
-- `Qwen/Qwen2.5-7B-Instruct`
-- `unsloth/Phi-4-mini-reasoning`
-
-All three models can be downloaded on `modelscope`, using the command below:
-```bash
-modelscope download --model <model_family>/<model_name> --local_dir path/to/your/model/storage
-```
-
-### Data
-
-The main training and evaluation files are stored under `data/`. The expected files for different benchmarks include:
-
-### Benchmark name: MATH-500
-- Benchmark `MATH-500_fixed.parquet`
-- training set (No Coach prompt) `math_train_fixed.parquet`
-- training set (With Coach prompt) `math_final_aligned2.parquet`
-
-### Benchmark name: AIME25/26
-- Benchmark `AIME25_fixed.parquet` `AIME26_fixed.parquet`
-- training set (No Coach prompt) `dapomath_7000_not_enhanced.parquet`
-- training set (With Coach prompt) `dapomath_7000_final_aligned.parquet`
-
-### Benchmark name: GPQA
-- Benchmark `GPQA_diamond.parquet`
-- training set (No Coach prompt) `WildSci_not_enhanced.parquet`
-- training set (With Coach prompt) `WildSci_final_aligned_3.parquet`
-
-### Benchmark name: LiveCodeBench
-- Benchmark `livecodebench.parquet`
-- training set (No Coach prompt) `Skywork_not_enhanced.parquet`
-- training set (With Coach prompt) `Skywork_final_aligned2.parquet`
-
-Update paths in the launch scripts if the data is stored in a different location on your system.
-
-### Maximum Generation Length
-| Benchmark | Phi-4-mini-reasoning | Qwen2.5-7B-Instruct | Qwen3-4B |
-| --- | --- | --- | --- |
-| AIME25 | 8192 | 1024 | 8192 |
-| AIME26 | 8192 | 1024 | 8192 |
-| GPQA | 4096 | 1024 | 4096 |
-| MATH-500 | 4096 | 1024 | 4096 |
-| LiveCodeBench | 4096 | — | 4096 |
-
-### Ablation Experiments
-You can disable `UNIFORM_GROUP_KL_ENABLE` while using the training sets with Coach prompts to ablate the effect of Strategy-balancing Regularization.
-
-You can vary `UNIFORM_GROUP_KL_GROUP_SIZE` to evaluate sensitivity to the number of strategies included in the balancing objective.
-
-
-### Command example
-The main Qwen3-4B AIME26 experiment can be reproduced with:
+The following example launches Qwen3-4B on the AIME26/AIME25 setting using the released GRPO script. Replace the model path and adjust the GPU count as needed:
 
 ```bash
 MODEL_PATH=/path/to/Qwen3-4B \
 TRAIN_PATH="$(pwd)/data/dapomath_7000_final_aligned.parquet" \
 TEST_PATH="$(pwd)/data/AIME26_fixed.parquet" \
-N_GPUS_PER_NODE=... \
-TOTAL_EPOCHS=... \
+TEST_PATH_2="$(pwd)/data/AIME25_fixed.parquet" \
+PROJECT_NAME=Mesh-Learning \
+TRAINER_NAME=Qwen3-4B-Mesh-AIME \
+N_GPUS_PER_NODE=2 \
+TOTAL_EPOCHS=2 \
 MAX_RESPONSE_LENGTH=8192 \
+PPO_MAX_TOKEN_LEN_PER_GPU=10000 \
+LOG_PROB_MAX_TOKEN_LEN_PER_GPU=10000 \
 ROLLOUT_N=4 \
 VAL_N=4 \
+USE_KL_LOSS=False \
+DIVERGENCE_TYPE=kl \
 UNIFORM_GROUP_KL_ENABLE=True \
 UNIFORM_GROUP_KL_GROUP_SIZE=4 \
+WANDB_MODE=offline \
 bash verl/examples/grpo_trainer/run_qwen2_5_7b_grpo.sh
 ```
-`ROLLOUT_N` is set 4 here as we split the 16 rollouts on 4 prompts with identical query but different system prompt.
 
-### Reproducibility Disclaimer
+**Rollout budget:** four Coach-augmented prompts represent the same query with different strategy prefixes. `ROLLOUT_N=4` produces four responses per prefix, totaling **16 rollouts per original query**. An unaugmented baseline uses `ROLLOUT_N=16` to match that budget.
 
-- Large generated outputs, checkpoints, local logs, and Hydra output directories are intentionally excluded from the repository.
-- wandb API keys and other service credentials should be prepared by the users.
-- Exact hardware throughput and runtime may vary with GPU type, driver version, backend configuration, and cluster scheduling.
-- Due to the stochasticity of RL training and inference, rerunning an experiment may not reproduce the reported metric exactly. The provided scripts and configuration can be used to reproduce the primary results reported.
+The launchers log to the console and W&B. The example uses offline W&B logging; for online logging, authenticate separately and set `WANDB_MODE=online`. Unless overridden, checkpoints go to `verl_outputs/<run_name>/` and Hydra outputs to `hydra_outputs/<run_name>/`.
 
-## Anonymity
+<details>
+<summary><strong>Configuration reference and paper settings</strong></summary>
 
-This artifact is prepared for anonymous review. Please do not infer authorship from repository metadata, local paths, or external service configuration.
+| Parameter | Purpose |
+| --- | --- |
+| `MODEL_PATH` | Local base-model checkpoint. |
+| `TRAIN_PATH`, `TEST_PATH`, `TEST_PATH_2` | Training, primary validation, and secondary validation datasets. |
+| `VAL_FILES` | Explicit validation-file override; use this to evaluate only one dataset with the GRPO launcher. |
+| `N_GPUS_PER_NODE` | GPUs on the single node used by the launchers. |
+| `TOTAL_EPOCHS`, `TOTAL_TRAINING_STEPS` | Epoch budget and optional training-step cap. |
+| `TRAIN_BATCH_SIZE`, `PPO_MINI_BATCH_SIZE`, `PPO_MICRO_BATCH_SIZE` | Prompt batch, optimizer minibatch, and per-GPU microbatch sizes. |
+| `MAX_RESPONSE_LENGTH` | Generation token budget; see the benchmark/model table below. |
+| `PPO_MAX_TOKEN_LEN_PER_GPU`, `LOG_PROB_MAX_TOKEN_LEN_PER_GPU` | Token limits for actor and log-probability computation. |
+| `ROLLOUT_N`, `VAL_N` | Samples per training prompt and per validation prompt. |
+| `USE_KL_LOSS`, `KL_LOSS_COEF`, `DIVERGENCE_TYPE` | Actor/reference penalty and divergence choice (`kl` or `js`); the divergence choice also feeds the balancing loss. |
+| `UNIFORM_GROUP_KL_ENABLE` | Enable Strategy-Balancing Regularization. |
+| `UNIFORM_GROUP_KL_GROUP_SIZE` | Sample 1–4 entries without replacement from each historical group of four adjacent entries; default is 4. |
+| `PROJECT_NAME`, `TRAINER_NAME`, `PERSIST_ROOT` | Logging identifiers and root for runtime/output directories. |
+
+The paper body reports **$\mu=10^{-5}$**. The current launchers hard-code `actor_rollout_ref.actor.uniform_group_kl_coef` to **$5\times10^{-5}$ for GRPO** and **$10^{-4}$ for DAPO/GSPO**. This coefficient is not exposed as an environment variable; edit the corresponding Hydra argument to match the paper's stated weight. The example above uses the released script's coefficient and defaults; exact paper reproduction requires aligning the experimental configuration.
+
+Keep Coach-augmented records in their prepared order. The balancing implementation uses groups of four adjacent entries, and the launchers set `data.shuffle=False` and `actor_rollout_ref.actor.use_dynamic_bsz=False`. Preserve that grouping contract when changing batch settings, and check that the auxiliary loss is computed rather than skipped.
+
+</details>
+
+### 4. Compare baselines and ablations
+
+| Recipe | Training data | Balancing | Rollouts per prompt |
+| --- | --- | --- | ---: |
+| Standard RLVR | Unaugmented | `UNIFORM_GROUP_KL_ENABLE=False` | 16 |
+| Coach Prompting only | Coach-augmented | `UNIFORM_GROUP_KL_ENABLE=False` | 4 |
+| **Mesh Learning** | **Coach-augmented** | **`UNIFORM_GROUP_KL_ENABLE=True`** | **4** |
+
+Available launchers:
+
+- [GRPO](verl/examples/grpo_trainer/run_qwen2_5_7b_grpo.sh)
+- [DAPO](verl/examples/dapo_trainer/run_qwen2_5_7b_dapo.sh)
+- [GSPO](verl/examples/gspo_trainer/run_qwen2_5_7b_gspo.sh)
+
+Script filenames are historical; `MODEL_PATH` selects the actual model. For divergence-regularized baselines, enable `USE_KL_LOSS`, select `DIVERGENCE_TYPE`, and configure the penalty coefficient. Setting `UNIFORM_GROUP_KL_GROUP_SIZE` to 3, 2, or 1 probes balancing-subset sensitivity within the prepared four-strategy groups.
+
+### 5. Evaluate and monitor
+
+| Benchmark | Phi-4-mini-reasoning | Qwen2.5-7B-Instruct | Qwen3-4B |
+| --- | ---: | ---: | ---: |
+| AIME25 / AIME26 | 8192 | 1024 | 8192 |
+| GPQA-Diamond | 4096 | 1024 | 4096 |
+| MATH-500 | 4096 | 1024 | 4096 |
+| LiveCodeBench | 4096 | — | 4096 |
+
+Values are maximum generation lengths in tokens. Use `VAL_N=4` for the main Mean@4 setting. To inspect larger inference budgets, increase `VAL_N` and read the corresponding best@N/Pass@k metrics separately from mean accuracy.
+
+The launchers enable MEI computation; track **`algorithm/mei_mean`** alongside validation accuracy and compare it against a calibrated threshold.
+
+<details>
+<summary><strong>Repository layout and reproducibility notes</strong></summary>
+
+```text
+.
+├── assets/           # Overview and accuracy/MEI figures
+├── data/             # Training and evaluation artifacts
+├── verl/             # Training framework, launchers, and evaluation code
+├── LICENSE           # Apache-2.0
+└── README.md
+```
+
+- Large generated outputs, checkpoints, local logs, and Hydra output directories are excluded from the release.
+- Runtime and memory requirements depend on the accelerator, drivers, backend, and batch configuration.
+- RL training and sampled evaluation are stochastic; repeated runs may differ from the reported metrics.
+- The code is distributed under the [Apache-2.0 license](LICENSE) and builds on the included [verl framework](verl/README.md).
+
+</details>
